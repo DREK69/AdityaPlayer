@@ -1,4 +1,5 @@
 import aiofiles, aiohttp, base64, json, os, random, re, requests, asyncio
+import httpx
 
 from .. import app, bot, call, cdz, console
 from urllib.parse import urlparse
@@ -37,19 +38,23 @@ def parse_tg_link(link: str):
     return None, None
 
 
-async def fetch_song(query: str):
-    url = "http://82.180.147.88:1470/song"
-    params = {"query": query}
 
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url, params=params) as response:
-            if response.status == 200:
-                try:
-                    return await response.json()
-                except Exception:
-                    return {}
-                
-            return {}
+async def fetch_song(query: str, fmt: str = "video"):
+    api_url = "https://bitflow.in/api/youtube"
+    params = {
+        "query": query,
+        "format": fmt,
+        "api_key": "1spiderkey2"
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=150) as client:
+            response = await client.get(api_url, params=params)
+            response.raise_for_status()
+            return response.json()
+    except Exception as e:
+        print(f"❌ fetch_song error: {e}")
+        return {}
 
 
 def convert_to_seconds(duration: str) -> int:
@@ -826,4 +831,5 @@ async def start_stream_in_vc(client, message):
                 await message.reply_text(error_msg)
         else:
             await message.reply_text(error_msg)
+
 
