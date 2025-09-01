@@ -47,7 +47,7 @@ async def main():
         sys.exit()
     await call.decorators()
     await import_all_plugins()
-    console.logs(__name__).info("✅ Now Do Visit: @AdityaServer.")
+    console.logs(__name__).info("✅ Now Do Visit: @DEPSTEY.")
     await pyrogram.idle()
     
     
