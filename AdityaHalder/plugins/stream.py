@@ -649,32 +649,31 @@ async def start_stream_in_vc(client, message):
                 else:
                     return await message.reply_text("❌ Failed to process query, please try again.")
                     
-            song_url = song_data.get("link")
-            if not song_url:
-                if aux:
-                    return await aux.edit("❌ No download link found.")
-                else:
-                    return await message.reply_text("❌ No download link found.")
+           song_url = song_data.get("link")
+           if not song_url:
+               if aux:
+                   return await aux.edit("❌ No download link found.")
+               else:
+                   return await message.reply_text("❌ No download link found.")
+          c_username, message_id = parse_tg_link(song_url)
+          if not c_username or not message_id:
+              if aux:
+                  return await aux.edit("❌ Invalid download link format.")
+          else:
+              return await message.reply_text("❌ Invalid download link format.")
+                    
+         try:
+             msg = await client.get_messages(c_username, message_id)
+         if aux:
+             await aux.edit("**⬇️ Downloading ✨...**")
+             await msg.download(file_name=xyz)
+        except Exception as e:
+            if aux:
+                return await aux.edit(f"❌ Failed to download: {str(e)}")
+            else:
+                return await message.reply_text(f"❌ Failed to download: {str(e)}")
             
-            c_username, message_id = parse_tg_link(song_url)
-            if not c_username or not message_id:
-                if aux:
-                    return await aux.edit("❌ Invalid download link format.")
-                else:
-                    return await message.reply_text("❌ Invalid download link format.")
-                    
-            try:
-                msg = await client.get_messages(c_username, message_id)
-                if aux:
-                    await aux.edit("**⬇️ Downloading ✨...**")
-                await msg.download(file_name=xyz)
-            except Exception as e:
-                if aux:
-                    return await aux.edit(f"❌ Failed to download: {str(e)}")
-                else:
-                    return await message.reply_text(f"❌ Failed to download: {str(e)}")
-                    
-            # Wait for file to be completely downloaded
+           # Wait for file to be completely downloaded
             max_wait = 30  # seconds
             wait_count = 0
             while not os.path.exists(xyz) and wait_count < max_wait:
@@ -831,5 +830,6 @@ async def start_stream_in_vc(client, message):
                 await message.reply_text(error_msg)
         else:
             await message.reply_text(error_msg)
+
 
 
