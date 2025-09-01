@@ -376,9 +376,79 @@ async def generate_thumbnail(url: str) -> str:
     except Exception:
         return "AdityaHalder/rsource/thumbnail.png"
 
-
 async def make_thumbnail(image, title, channel, duration, output):
     return await create_music_thumbnail(image, title, channel, duration, output)
+
+
+async def handle_telegram_media(client, message, telegram_media, video_stream=False):
+    """Handle Telegram media files (audio, voice, video, documents)"""
+    try:
+        # Get media info
+        media_title = getattr(telegram_media, 'title', None) or getattr(telegram_media, 'file_name', None) or "Telegram Audio"
+        media_performer = getattr(telegram_media, 'performer', None) or "Unknown Artist"
+        media_duration = getattr(telegram_media, 'duration', 0)
+        
+        # Create unique filename
+        file_id = telegram_media.file_id
+        file_extension = ".mp3"
+        if hasattr(telegram_media, 'mime_type') and telegram_media.mime_type:
+            if 'video' in telegram_media.mime_type:
+                file_extension = ".mp4"
+            elif 'audio' in telegram_media.mime_type:
+                file_extension = ".mp3"
+        
+        # Ensure downloads directory exists
+        os.makedirs("downloads", exist_ok=True)
+        file_path = os.path.join("downloads", f"tg_{file_id}{file_extension}")
+        
+        # Download if not exists
+        if not os.path.exists(file_path):
+            try:
+                await message.reply_to_message.download(file_name=file_path)
+                
+                # Wait for download completion
+                max_wait = 60
+                wait_count = 0
+                while not os.path.exists(file_path) and wait_count < max_wait:
+                    await asyncio.sleep(1)
+                    wait_count += 1
+                    
+                if not os.path.exists(file_path):
+                    return None, "❌ Download timeout."
+                    
+            except Exception as e:
+                return None, f"❌ Failed to download media: {str(e)}"
+        
+        # Create media stream
+        try:
+            media_stream = (
+                MediaStream(
+                    media_path=file_path,
+                    video_flags=MediaStream.Flags.IGNORE,
+                    audio_parameters=AudioQuality.STUDIO,
+                )
+                if not video_stream
+                else MediaStream(
+                    media_path=file_path,
+                    audio_parameters=AudioQuality.STUDIO,
+                    video_parameters=VideoQuality.HD_720p,
+                )
+            )
+        except Exception as e:
+            return None, f"❌ Failed to create media stream: {str(e)}"
+        
+        return {
+            'media_stream': media_stream,
+            'title': media_title,
+            'artist': media_performer,
+            'duration_sec': media_duration,
+            'duration_formatted': format_duration(media_duration) if media_duration else "Unknown",
+            'file_path': file_path,
+            'thumbnail_url': "AdityaHalder/rsource/thumbnail.png"  # Default thumbnail for Telegram media
+        }, None
+        
+    except Exception as e:
+        return None, f"❌ Error processing Telegram media: {str(e)}"
 
 
 @bot.on_message(cdz(["play", "vplay"]) & ~filters.private)
@@ -411,23 +481,126 @@ async def start_stream_in_vc(client, message):
             if replied.document.mime_type.startswith(('audio/', 'video/')):
                 telegram_media = replied.document
 
+    video_stream = True if message.command[0].startswith("v") else False
+
+    # Handle Telegram media
+    if telegram_media:
+        try:
+            aux = await message.reply_text("**🔄 Processing Telegram Media ✨...**")
+        except Exception:
+            aux = None
+            
+        try:
+            media_info, error = await handle_telegram_media(client, message, telegram_media, video_stream)
+            
+            if error:
+                if aux:
+                    return await aux.edit(error)
+                else:
+                    return await message.reply_text(error)
+            
+            # Extract info
+            media_stream = media_info['media_stream']
+            title = media_info['title']
+            artist = media_info['artist']
+            duration_sec = media_info['duration_sec']
+            duration_formatted = media_info['duration_formatted']
+            file_path = media_info['file_path']
+            thumbnail_url = media_info['thumbnail_url']
+            
+            # Try to stream
+            if chat_id not in call.queue:
+                try:
+                    await call.start_stream(chat_id, media_stream)
+                except NoActiveGroupCall:
+                    if aux:
+                        return await aux.edit("❌ No active voice chat found. Please join a voice chat first.")
+                    else:
+                        return await message.reply_text("❌ No active voice chat found. Please join a voice chat first.")
+                except TelegramServerError:
+                    if aux:
+                        return await aux.edit("⚠️ **Telegram server error!**\nPlease try again shortly.")
+                    else:
+                        return await message.reply_text("⚠️ **Telegram server error!**\nPlease try again shortly.")
+                except Exception as e:
+                    if aux:
+                        return await aux.edit(f"❌ **Failed to stream:** `{str(e)}`")
+                    else:
+                        return await message.reply_text(f"❌ **Failed to stream:** `{str(e)}`")
+
+            # Generate thumbnail
+            image_file = await generate_thumbnail(thumbnail_url)
+            thumbnail = await make_thumbnail(
+                image_file, title, artist, duration_sec, f"cache/{chat_id}_tg_{message.id}.png"
+            )
+                
+            if aux:
+                try:
+                    await aux.delete()
+                except:
+                    pass
+                
+            pos = await call.add_to_queue(chat_id, media_stream, title, duration_formatted, thumbnail, mention)
+            status = (
+                "✅ **Started Streaming Telegram Media in VC.**"
+                if pos == 0
+                else f"✅ **Telegram Media Added To Queue At: #{pos}**"
+            )
+            
+            caption = f"""{status}
+
+**❍ Title:** {title}
+**❍ Artist:** {artist}
+**❍ Duration:** {duration_formatted}
+**❍ Source:** Telegram Media
+**❍ Requested By:** {mention}"""
+
+            buttons = InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            text="🗑️ Close",
+                            callback_data="close",
+                        ),
+                    ]
+                ]
+            )
+            
+            try:
+                await message.reply_photo(photo=thumbnail, caption=caption, has_spoiler=True, reply_markup=buttons)
+            except Exception as e:
+                await message.reply_text(f"{caption}\n\n❌ Failed to send thumbnail: {str(e)}")
+            
+            return
+            
+        except Exception as e:
+            error_msg = f"❌ **Error processing Telegram media:** `{str(e)}`"
+            if aux:
+                try:
+                    await aux.edit(error_msg)
+                except:
+                    await message.reply_text(error_msg)
+            else:
+                await message.reply_text(error_msg)
+            return
+
     # If no Telegram media and no query provided, show help
-    if not telegram_media and len(message.command) < 2:
+    if len(message.command) < 2:
         return await message.reply_text(
             f"""**🥀 Give Me Some Query To Stream Audio Or Video❗...
 ℹ️ Example:
 ≽ Audio: `/play yalgaar`
-≽ Video: `/vplay yalgaar`**"""
+≽ Video: `/vplay yalgaar`
+≽ Reply to audio/video: `/play` or `/vplay`**"""
         )
 
+    # Handle YouTube/search queries
     query = parse_query(" ".join(message.command[1:]))
     
     try:
-        aux = await message.reply_text("**🔄 Processing ✨...**")
+        aux = await message.reply_text("**🔄 Processing YouTube Query ✨...**")
     except Exception:
         aux = None
-
-    video_stream = True if message.command[0].startswith("v") else False
 
     try:
         search = VideosSearch(query, limit=1)
@@ -511,20 +684,26 @@ async def start_stream_in_vc(client, message):
 
         file_path = xyz
 
-        # Create media stream
-        media_stream = (
-            MediaStream(
-                media_path=file_path,
-                video_flags=MediaStream.Flags.IGNORE,
-                audio_parameters=AudioQuality.STUDIO,
+        # Create media stream with proper error handling
+        try:
+            media_stream = (
+                MediaStream(
+                    media_path=file_path,
+                    video_flags=MediaStream.Flags.IGNORE,
+                    audio_parameters=AudioQuality.STUDIO,
+                )
+                if not video_stream
+                else MediaStream(
+                    media_path=file_path,
+                    audio_parameters=AudioQuality.STUDIO,
+                    video_parameters=VideoQuality.HD_720p,
+                )
             )
-            if not video_stream
-            else MediaStream(
-                media_path=file_path,
-                audio_parameters=AudioQuality.STUDIO,
-                video_parameters=VideoQuality.HD_720p,
-            )
-        )
+        except Exception as e:
+            if aux:
+                return await aux.edit(f"❌ **Failed to create media stream:** `{str(e)}`")
+            else:
+                return await message.reply_text(f"❌ **Failed to create media stream:** `{str(e)}`")
         
         # Check if chat_id is in queue, if not start streaming
         if chat_id not in call.queue:
