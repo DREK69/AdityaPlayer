@@ -346,7 +346,7 @@ async def generate_thumbnail(url: str) -> str:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url) as resp:
                     if resp.status != 200:
-                        return "AdityaHalder/rsource/thumbnail.png"
+                        return "AdityaHalder/resource/thumbnail.png"
                     data = await resp.read()
 
                     with Image.open(BytesIO(data)) as img:
@@ -360,7 +360,7 @@ async def generate_thumbnail(url: str) -> str:
 
         else:
             if not os.path.isfile(url):
-                return "AdityaHalder/rsource/thumbnail.png"
+                return "AdityaHalder/resource/thumbnail.png"
 
             with Image.open(url) as img:
                 img = img.resize((1280, 720))
@@ -374,7 +374,7 @@ async def generate_thumbnail(url: str) -> str:
         return filename
 
     except Exception:
-        return "AdityaHalder/rsource/thumbnail.png"
+        return "AdityaHalder/resource/thumbnail.png"
 
 async def make_thumbnail(image, title, channel, duration, output):
     return await create_music_thumbnail(image, title, channel, duration, output)
@@ -444,7 +444,7 @@ async def handle_telegram_media(client, message, telegram_media, video_stream=Fa
             'duration_sec': media_duration,
             'duration_formatted': format_duration(media_duration) if media_duration else "Unknown",
             'file_path': file_path,
-            'thumbnail_url': "AdityaHalder/rsource/thumbnail.png"  # Default thumbnail for Telegram media
+            'thumbnail_url': "AdityaHalder/resource/thumbnail.png"  # Default thumbnail for Telegram media
         }, None
         
     except Exception as e:
@@ -826,3 +826,4 @@ async def start_stream_in_vc(client, message):
                 await message.reply_text(error_msg)
         else:
             await message.reply_text(error_msg)
+
