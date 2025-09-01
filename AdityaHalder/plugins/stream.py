@@ -49,10 +49,27 @@ async def fetch_song(query: str, fmt: str = "video"):
         async with httpx.AsyncClient(timeout=150) as client:
             response = await client.get(api_url, params=params)
             response.raise_for_status()
-            return response.json()
+            data = response.json()
+            print(f"📊 API Response: {data}")  # Debug log
+            return data
     except Exception as e:
         print(f"❌ fetch_song error: {e}")
         return {}
+
+
+async def download_direct_url(url: str, file_path: str):
+    """Download file directly from URL"""
+    try:
+        async with httpx.AsyncClient(timeout=300) as client:
+            async with client.stream('GET', url) as response:
+                response.raise_for_status()
+                async with aiofiles.open(file_path, 'wb') as f:
+                    async for chunk in response.aiter_bytes():
+                        await f.write(chunk)
+        return True
+    except Exception as e:
+        print(f"❌ Direct download error: {e}")
+        return False
 
 
 def convert_to_seconds(duration: str) -> int:
@@ -454,6 +471,7 @@ async def handle_telegram_media(client, message, telegram_media, video_stream=Fa
         
     except Exception as e:
         return None, f"❌ Error processing Telegram media: {str(e)}"
+
 @bot.on_message(cdz(["play", "vplay"]) & ~filters.private)
 async def start_stream_in_vc(client, message):
     try:
@@ -646,34 +664,81 @@ async def start_stream_in_vc(client, message):
                     return await aux.edit("❌ Failed to process query, please try again.")
                 else:
                     return await message.reply_text("❌ Failed to process query, please try again.")
-                    
-            song_url = song_data.get("link")
-            if not song_url:
+            
+            # Check different possible fields for download URL
+            song_url = None
+            download_url = None
+            
+            # Check various possible response formats
+            if "link" in song_data:
+                song_url = song_data["link"]
+            elif "download_url" in song_data:
+                download_url = song_data["download_url"]
+            elif "url" in song_data:
+                download_url = song_data["url"]
+            elif "audio_url" in song_data:
+                download_url = song_data["audio_url"]
+            elif "stream_url" in song_data:
+                download_url = song_data["stream_url"]
+            elif "direct_url" in song_data:
+                download_url = song_data["direct_url"]
+            elif isinstance(song_data, dict) and "data" in song_data:
+                # If response has nested data
+                data = song_data["data"]
+                if isinstance(data, dict):
+                    if "link" in data:
+                        song_url = data["link"]
+                    elif "download_url" in data:
+                        download_url = data["download_url"]
+                    elif "url" in data:
+                        download_url = data["url"]
+            
+            # Handle Telegram link format
+            if song_url:
+                c_username, message_id = parse_tg_link(song_url)
+                if not c_username or not message_id:
+                    if aux:
+                        return await aux.edit("❌ Invalid download link format.")
+                    else:
+                        return await message.reply_text("❌ Invalid download link format.")
+                        
+                try:
+                    msg = await client.get_messages(c_username, message_id)
+                    if aux:
+                        await aux.edit("**⬇️ Downloading ✨...**")
+                    await msg.download(file_name=xyz)
+                except Exception as e:
+                    if aux:
+                        return await aux.edit(f"❌ Failed to download: {str(e)}")
+                    else:
+                        return await message.reply_text(f"❌ Failed to download: {str(e)}")
+            
+            # Handle direct URL download
+            elif download_url:
+                try:
+                    if aux:
+                        await aux.edit("**⬇️ Downloading ✨...**")
+                    success = await download_direct_url(download_url, xyz)
+                    if not success:
+                        if aux:
+                            return await aux.edit("❌ Failed to download from direct URL.")
+                        else:
+                            return await message.reply_text("❌ Failed to download from direct URL.")
+                except Exception as e:
+                    if aux:
+                        return await aux.edit(f"❌ Failed to download: {str(e)}")
+                    else:
+                        return await message.reply_text(f"❌ Failed to download: {str(e)}")
+            
+            else:
+                # No valid download URL found
                 if aux:
-                    return await aux.edit("❌ No download link found.")
+                    return await aux.edit(f"❌ No download link found in API response. Available fields: {list(song_data.keys())}")
                 else:
-                    return await message.reply_text("❌ No download link found.")
-                    
-            c_username, message_id = parse_tg_link(song_url)
-            if not c_username or not message_id:
-                if aux:
-                    return await aux.edit("❌ Invalid download link format.")
-                else:
-                    return await message.reply_text("❌ Invalid download link format.")
-                    
-            try:
-                msg = await client.get_messages(c_username, message_id)
-                if aux:
-                    await aux.edit("**⬇️ Downloading ✨...**")
-                await msg.download(file_name=xyz)
-            except Exception as e:
-                if aux:
-                    return await aux.edit(f"❌ Failed to download: {str(e)}")
-                else:
-                    return await message.reply_text(f"❌ Failed to download: {str(e)}")
+                    return await message.reply_text(f"❌ No download link found in API response. Available fields: {list(song_data.keys())}")
                 
             # Wait for file to be completely downloaded
-            max_wait = 30  # seconds
+            max_wait = 60  # seconds
             wait_count = 0
             while not os.path.exists(xyz) and wait_count < max_wait:
                 await asyncio.sleep(1)
