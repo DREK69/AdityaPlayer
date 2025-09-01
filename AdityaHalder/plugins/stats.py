@@ -28,7 +28,7 @@ def get_storage_usage() -> str:
     return f"{used} GB / {total} GB"
 
 
-@bot.on_message(cdx("stats"))
+@bot.on_message(cdx("mstats"))
 async def stats_handler(client, message):
     try:
         await message.delete()
@@ -57,8 +57,6 @@ async def stats_handler(client, message):
         f"✴️ **Pyrogram Version:** `{pyro_version}`\n"
         f"🎵 **PyTgCalls Version:** `{tgcalls_version}`\n"
         f"🎧 **NTgCalls Version:** `{ntgcalls_version}`\n\n"
-        f"💬 **Served Chats:** `{total_chats}`\n"
-        f"👥 **Served Users:** `{total_users}`\n\n"
         f"⚡ **CPU Usage:** `{cpu_usage}`\n"
         f"💾 **RAM Usage:** `{ram_usage}`\n"
         f"📂 **Storage Usage:** `{storage_usage}`\n\n"
