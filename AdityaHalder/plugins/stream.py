@@ -1,4 +1,4 @@
-import aiofiles, aiohttp, base64, json, os, random, re, requests
+import aiofiles, aiohttp, base64, json, os, random, re, requests, asyncio
 
 from .. import app, bot, call, cdz, console
 from urllib.parse import urlparse
@@ -26,7 +26,6 @@ def parse_query(query: str) -> str:
     return query
 
 
-
 def parse_tg_link(link: str):
     parsed = urlparse(link)
     path = parsed.path.strip('/')
@@ -51,6 +50,7 @@ async def fetch_song(query: str):
                     return {}
                 
             return {}
+
 
 def convert_to_seconds(duration: str) -> int:
     parts = list(map(int, duration.split(":")))
@@ -81,7 +81,6 @@ def format_duration(seconds: int) -> str:
         parts.append(f"{sec}s")
 
     return " ".join(parts)
-
 
 
 def seconds_to_hhmmss(seconds):
@@ -118,7 +117,6 @@ def trim_text(draw, text, font, max_width):
             text = text[:-1]
         text = text + "..."
     return text
-    
 
 async def create_music_thumbnail(cover_path, title, artist, duration_seconds=None, output_path="thumbnail.png"):
     # Handle title/artist
@@ -243,9 +241,15 @@ async def create_music_thumbnail(cover_path, title, artist, duration_seconds=Non
 
     # --- Draw texts and progress bar ---
     draw = ImageDraw.Draw(bg)
-    font_title = ImageFont.truetype("AdityaHalder/resource/font.ttf", 36)
-    font_artist = ImageFont.truetype("AdityaHalder/resource/font.ttf", 28)
-    font_time = ImageFont.truetype("AdityaHalder/resource/font.ttf", 24)
+    try:
+        font_title = ImageFont.truetype("AdityaHalder/resource/font.ttf", 36)
+        font_artist = ImageFont.truetype("AdityaHalder/resource/font.ttf", 28)
+        font_time = ImageFont.truetype("AdityaHalder/resource/font.ttf", 24)
+    except:
+        # Fallback to default font if custom font not found
+        font_title = ImageFont.load_default()
+        font_artist = ImageFont.load_default()
+        font_time = ImageFont.load_default()
 
     max_width = card_w - 300
     title = trim_text(draw, title, font_title, max_width)
@@ -332,6 +336,9 @@ async def create_music_thumbnail(cover_path, title, artist, duration_seconds=Non
 
 async def generate_thumbnail(url: str) -> str:
     try:
+        # Ensure cache directory exists
+        os.makedirs("cache", exist_ok=True)
+        
         filename = os.path.join("cache", f"thumbnail_{hash(url)}.jpg")
         parsed = urlparse(url)
 
@@ -339,7 +346,7 @@ async def generate_thumbnail(url: str) -> str:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url) as resp:
                     if resp.status != 200:
-                        return ""
+                        return "AdityaHalder/rsource/thumbnail.png"
                     data = await resp.read()
 
                     with Image.open(BytesIO(data)) as img:
@@ -374,8 +381,6 @@ async def make_thumbnail(image, title, channel, duration, output):
     return await create_music_thumbnail(image, title, channel, duration, output)
 
 
-
-
 @bot.on_message(cdz(["play", "vplay"]) & ~filters.private)
 async def start_stream_in_vc(client, message):
     try:
@@ -406,43 +411,47 @@ async def start_stream_in_vc(client, message):
             "**🥺 Sorry, I Can't Stream Telegram Media Files Right Now.**"
         )
 
-    # agar koi argument bhi nahi diya
+    # Check if query is provided
     if len(message.command) < 2:
         return await message.reply_text(
-                f"""
-**🥀 Give Me Some Query To
-Stream Audio Or Video❗...
+            f"""**🥀 Give Me Some Query To Stream Audio Or Video❗...
 
 ℹ️ Example:
 ≽ Audio: `/play yalgaar`
 ≽ Video: `/vplay yalgaar`**"""
-            )
-        query = parse_query(" ".join(message.command[1:]))
-        try:
-            aux =  await message.reply_text("**🔄 Processing ✨...**")
-        except Exception:
-            pass
-        video_stream = True if message.command[0].startswith("v") else False
+        )
 
+    query = parse_query(" ".join(message.command[1:]))
+    
+    try:
+        aux = await message.reply_text("**🔄 Processing ✨...**")
+    except Exception:
+        aux = None
+
+    video_stream = True if message.command[0].startswith("v") else False
+
+    try:
         search = VideosSearch(query, limit=1)
         result = (await search.next())["result"]
 
         if not result:
-            try:
+            if aux:
                 return await aux.edit("❌ No results found.")
-            except Exception:
-                return
+            else:
+                return await message.reply_text("❌ No results found.")
 
         video = result[0]
         full_title = video["title"]
         title = full_title[:30]
         id = video["id"]
         duration = video["duration"]
+        
         if not duration:
-            try:
+            if aux:
                 return await aux.edit("❌ I can't stream live-stream right now.")
-            except Exception:
-                return
+            else:
+                return await message.reply_text("❌ I can't stream live-stream right now.")
+                
         duration_sec = convert_to_seconds(duration)
         duration_mins = format_duration(duration_sec)
         views = video["viewCount"]["short"]
@@ -450,148 +459,171 @@ Stream Audio Or Video❗...
         channellink = video["channel"]["link"]
         channel = video["channel"]["name"]
         link = video["link"]
+        
+        # Ensure downloads directory exists
+        os.makedirs("downloads", exist_ok=True)
         xyz = os.path.join("downloads", f"{id}.mp3")
+        
         if not os.path.exists(xyz):
             song_data = await fetch_song(id)
             if not song_data:
-                try:
+                if aux:
                     return await aux.edit("❌ Failed to process query, please try again.")
-                except Exception:
-                    return
-            song_url = song_data["link"]
+                else:
+                    return await message.reply_text("❌ Failed to process query, please try again.")
+                    
+            song_url = song_data.get("link")
+            if not song_url:
+                if aux:
+                    return await aux.edit("❌ No download link found.")
+                else:
+                    return await message.reply_text("❌ No download link found.")
             
             c_username, message_id = parse_tg_link(song_url)
-            msg = await client.get_messages(c_username, message_id)
-            try:
-                try:
-                    await aux.edit("**⬇️ Downloading ✨...**")
-                except Exception:
-                    pass
-                await msg.download(file_name=xyz)
-            except Exception:
-                try:
-                    return await aux.edit("❌ Failed to download, please try again.")
-                except Exception:
-                    return
+            if not c_username or not message_id:
+                if aux:
+                    return await aux.edit("❌ Invalid download link format.")
+                else:
+                    return await message.reply_text("❌ Invalid download link format.")
                     
-            while not os.path.exists(xyz):
-                await asyncio.sleep(0.5)
+            try:
+                msg = await client.get_messages(c_username, message_id)
+                if aux:
+                    await aux.edit("**⬇️ Downloading ✨...**")
+                await msg.download(file_name=xyz)
+            except Exception as e:
+                if aux:
+                    return await aux.edit(f"❌ Failed to download: {str(e)}")
+                else:
+                    return await message.reply_text(f"❌ Failed to download: {str(e)}")
+                    
+            # Wait for file to be completely downloaded
+            max_wait = 30  # seconds
+            wait_count = 0
+            while not os.path.exists(xyz) and wait_count < max_wait:
+                await asyncio.sleep(1)
+                wait_count += 1
                 
+            if not os.path.exists(xyz):
+                if aux:
+                    return await aux.edit("❌ Download timeout.")
+                else:
+                    return await message.reply_text("❌ Download timeout.")
+
         file_path = xyz
 
-    
-    media_stream = (
-        MediaStream(
-            media_path=file_path,
-            video_flags=MediaStream.Flags.IGNORE,
-            audio_parameters=AudioQuality.STUDIO,
+        # Create media stream
+        media_stream = (
+            MediaStream(
+                media_path=file_path,
+                video_flags=MediaStream.Flags.IGNORE,
+                audio_parameters=AudioQuality.STUDIO,
+            )
+            if not video_stream
+            else MediaStream(
+                media_path=file_path,
+                audio_parameters=AudioQuality.STUDIO,
+                video_parameters=VideoQuality.HD_720p,
+            )
         )
-        if not video_stream
-        else MediaStream(
-            media_path=file_path,
-            audio_parameters=AudioQuality.STUDIO,
-            video_parameters=VideoQuality.HD_720p,
-        )
-    )
-    
-    if chat_id not in call.queue:
-        try:
+        
+        # Check if chat_id is in queue, if not start streaming
+        if chat_id not in call.queue:
             try:
                 await call.start_stream(chat_id, media_stream)
             except NoActiveGroupCall:
-                try:
-                    return await aux.edit("❌ No active vc found to stream.")
-                except Exception:
-                    return
+                if aux:
+                    return await aux.edit("❌ No active voice chat found. Please join a voice chat first.")
+                else:
+                    return await message.reply_text("❌ No active voice chat found. Please join a voice chat first.")
             except TelegramServerError:
-                try:
-                    return await aux.edit(
-                        "⚠️**Telegram server error!**\nPlease try again shortly."
-                    )
-                except Exception:
-                    return
-        except Exception as e:
-            try:
-                return await aux.edit(
-                    f"❌ **Failed to stream**❗\n\n`{e}`"
-                )
-            except Exception:
-                return
+                if aux:
+                    return await aux.edit("⚠️ **Telegram server error!**\nPlease try again shortly.")
+                else:
+                    return await message.reply_text("⚠️ **Telegram server error!**\nPlease try again shortly.")
+            except Exception as e:
+                if aux:
+                    return await aux.edit(f"❌ **Failed to stream:** `{str(e)}`")
+                else:
+                    return await message.reply_text(f"❌ **Failed to stream:** `{str(e)}`")
 
-    image_file = await generate_thumbnail(image_path)
-    thumbnail = await make_thumbnail(
-        image_file, full_title, channel, duration_sec, f"cache/{chat_id}_{id}_{message.id}.png"
-    )
+        # Generate thumbnail
+        image_file = await generate_thumbnail(image_path)
+        thumbnail = await make_thumbnail(
+            image_file, full_title, channel, duration_sec, f"cache/{chat_id}_{id}_{message.id}.png"
+        )
+            
+        if aux:
+            try:
+                await aux.delete()
+            except:
+                pass
+            
+        pos = await call.add_to_queue(chat_id, media_stream, title, duration_mins, thumbnail, mention)
+        status = (
+            "✅ **Started Streaming in VC.**"
+            if pos == 0
+            else f"✅ **Added To Queue At: #{pos}**"
+        )
         
-    try:
-        await aux.delete()
-    except:
-        pass
-        
-    pos = await call.add_to_queue(chat_id, media_stream, title, duration_mins, thumbnail, mention)
-    status = (
-        "✅ **Started Streaming in VC.**"
-        if pos == 0
-        else f"✅ **Added To Queue At: #{pos}**"
-    )
-    caption = f"""
-{status}
+        caption = f"""{status}
 
 **❍ Title:** [{title}...]({link})
 **❍ Duration:** {duration_mins}
 **❍ Requested By:** {mention}"""
-    buttons = InlineKeyboardMarkup(
-        [
+
+        buttons = InlineKeyboardMarkup(
             [
-                InlineKeyboardButton(
-                    text="🗑️ Close",
-                    callback_data="close",
-                ),
+                [
+                    InlineKeyboardButton(
+                        text="🗑️ Close",
+                        callback_data="close",
+                    ),
+                ]
             ]
-        ]
-    )
-    try:
-        await message.reply_photo(photo=thumbnail, caption=caption, has_spoiler=True, reply_markup=buttons)
-    except Exception as e:
-        pass
-
-    if chat_id != console.LOG_GROUP_ID:
-        try:
-            chat_name = message.chat.title
-            if message.chat.username:
-                chat_link = f"@{message.chat.username}"
-            elif chat_id in console.chat_links:
-                clink = console.chat_links[chat_id]
-                chat_link = f"[Private Chat]({clink})"
-            else:
-                try:
-                    new_link = await client.export_chat_invite_link(chat_id)
-                    console.chat_links[chat_id] = new_link
-                    chat_link = f"[Private Chat]({new_link})"
-                except Exception:
-                    chat_link = "N/A"
+        )
         
+        try:
+            await message.reply_photo(photo=thumbnail, caption=caption, has_spoiler=True, reply_markup=buttons)
+        except Exception as e:
+            await message.reply_text(f"{caption}\n\n❌ Failed to send thumbnail: {str(e)}")
 
-            if message.from_user:
-                if message.from_user.username:
-                    req_user = f"@{message.from_user.username}"
+        # Logging
+        if chat_id != console.LOG_GROUP_ID:
+            try:
+                chat_name = message.chat.title or "Unknown Chat"
+                if message.chat.username:
+                    chat_link = f"@{message.chat.username}"
+                elif chat_id in console.chat_links:
+                    clink = console.chat_links[chat_id]
+                    chat_link = f"[Private Chat]({clink})"
                 else:
-                    req_user = message.from_user.mention
-                user_id = message.from_user.id
-            elif message.sender_chat:
-                if message.sender_chat.username:
-                    req_user = f"@{message.sender_chat.username}"
+                    try:
+                        new_link = await client.export_chat_invite_link(chat_id)
+                        console.chat_links[chat_id] = new_link
+                        chat_link = f"[Private Chat]({new_link})"
+                    except Exception:
+                        chat_link = "N/A"
+            
+                if message.from_user:
+                    if message.from_user.username:
+                        req_user = f"@{message.from_user.username}"
+                    else:
+                        req_user = message.from_user.mention
+                    user_id = message.from_user.id
+                elif message.sender_chat:
+                    if message.sender_chat.username:
+                        req_user = f"@{message.sender_chat.username}"
+                    else:
+                        req_user = message.sender_chat.title
+                    user_id = message.sender_chat.id
                 else:
-                    req_user = message.sender_chat.title
-                user_id = message.sender_chat.id
-            else:
-                req_user = "Anonymous User"
-                user_id = "N/A"
+                    req_user = "Anonymous User"
+                    user_id = "N/A"
 
-            stream_type = "Audio" if not video_stream else "Video"
+                stream_type = "Audio" if not video_stream else "Video"
 
-            log_message = f"""
-🎉 **{mention} Just Played A Song.**
+                log_message = f"""🎉 **{mention} Just Played A Song.**
 
 📍 **Chat:** {chat_name}
 💬 **Chat Link:** {chat_link}
@@ -602,21 +634,17 @@ Stream Audio Or Video❗...
 🎶 **Title:** [{title}...]({link})
 ⏱️ **Duration:** {duration_mins}
 📡 **Stream Type:** {stream_type}"""
-            await bot.send_photo(console.LOG_GROUP_ID, photo=thumbnail, caption=log_message)
-        except Exception:
-            pass
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+                await bot.send_photo(console.LOG_GROUP_ID, photo=thumbnail, caption=log_message)
+            except Exception:
+                pass
+                
+    except Exception as e:
+        error_msg = f"❌ **An error occurred:** `{str(e)}`"
+        if aux:
+            try:
+                await aux.edit(error_msg)
+            except:
+                await message.reply_text(error_msg)
+        else:
+            await message.reply_text(error_msg)
