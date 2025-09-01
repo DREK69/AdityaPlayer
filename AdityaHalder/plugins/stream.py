@@ -231,7 +231,7 @@ def parse_tg_link(link: str):
                     await message.reply_text(error_msg)
             else:
                 await message.reply_text(error_msg)
-            return, None
+            return None
 
 
 async def fetch_song(query: str):
@@ -1035,3 +1035,4 @@ async def start_stream_in_vc(client, message):
 📡 **Stream Type:** {stream_type}"""
 
                 await bot.send_photo(console.LOG_GROUP_ID, photo=thumbnail, caption=log_messa
+
