@@ -17,7 +17,6 @@ from pytgcalls.types import AudioQuality, VideoQuality
 from youtubesearchpython.__future__ import VideosSearch
 
 
-
 def parse_query(query: str) -> str:
     if bool(re.match(r'^(https?://)?(www\.)?(youtube\.com|youtu\.be)/(?:watch\?v=|embed/|v/|shorts/|live/)?([A-Za-z0-9_-]{11})(?:[?&].*)?$', query)):
         match = re.search(r'(?:v=|\/(?:embed|v|shorts|live)\/|youtu\.be\/)([A-Za-z0-9_-]{11})', query)
@@ -36,7 +35,6 @@ def parse_tg_link(link: str):
         return str(parts[0]), int(parts[1])
         
     return None, None
-
 
 
 async def fetch_song(query: str, fmt: str = "video"):
@@ -122,6 +120,7 @@ def trim_text(draw, text, font, max_width):
             text = text[:-1]
         text = text + "..."
     return text
+
 
 async def create_music_thumbnail(cover_path, title, artist, duration_seconds=None, output_path="thumbnail.png"):
     # Handle title/artist
@@ -381,6 +380,7 @@ async def generate_thumbnail(url: str) -> str:
     except Exception:
         return "AdityaHalder/resource/thumbnail.png"
 
+
 async def make_thumbnail(image, title, channel, duration, output):
     return await create_music_thumbnail(image, title, channel, duration, output)
 
@@ -454,8 +454,6 @@ async def handle_telegram_media(client, message, telegram_media, video_stream=Fa
         
     except Exception as e:
         return None, f"❌ Error processing Telegram media: {str(e)}"
-
-
 @bot.on_message(cdz(["play", "vplay"]) & ~filters.private)
 async def start_stream_in_vc(client, message):
     try:
@@ -649,31 +647,32 @@ async def start_stream_in_vc(client, message):
                 else:
                     return await message.reply_text("❌ Failed to process query, please try again.")
                     
-           song_url = song_data.get("link")
-           if not song_url:
-               if aux:
-                   return await aux.edit("❌ No download link found.")
-               else:
-                   return await message.reply_text("❌ No download link found.")
-          c_username, message_id = parse_tg_link(song_url)
-          if not c_username or not message_id:
-              if aux:
-                  return await aux.edit("❌ Invalid download link format.")
-          else:
-              return await message.reply_text("❌ Invalid download link format.")
+            song_url = song_data.get("link")
+            if not song_url:
+                if aux:
+                    return await aux.edit("❌ No download link found.")
+                else:
+                    return await message.reply_text("❌ No download link found.")
                     
-         try:
-             msg = await client.get_messages(c_username, message_id)
-         if aux:
-             await aux.edit("**⬇️ Downloading ✨...**")
-             await msg.download(file_name=xyz)
-        except Exception as e:
-            if aux:
-                return await aux.edit(f"❌ Failed to download: {str(e)}")
-            else:
-                return await message.reply_text(f"❌ Failed to download: {str(e)}")
-            
-           # Wait for file to be completely downloaded
+            c_username, message_id = parse_tg_link(song_url)
+            if not c_username or not message_id:
+                if aux:
+                    return await aux.edit("❌ Invalid download link format.")
+                else:
+                    return await message.reply_text("❌ Invalid download link format.")
+                    
+            try:
+                msg = await client.get_messages(c_username, message_id)
+                if aux:
+                    await aux.edit("**⬇️ Downloading ✨...**")
+                await msg.download(file_name=xyz)
+            except Exception as e:
+                if aux:
+                    return await aux.edit(f"❌ Failed to download: {str(e)}")
+                else:
+                    return await message.reply_text(f"❌ Failed to download: {str(e)}")
+                
+            # Wait for file to be completely downloaded
             max_wait = 30  # seconds
             wait_count = 0
             while not os.path.exists(xyz) and wait_count < max_wait:
@@ -830,6 +829,3 @@ async def start_stream_in_vc(client, message):
                 await message.reply_text(error_msg)
         else:
             await message.reply_text(error_msg)
-
-
-
