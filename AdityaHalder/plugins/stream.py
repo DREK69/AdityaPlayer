@@ -395,27 +395,26 @@ async def start_stream_in_vc(client, message):
         f"[Anonymous User](https://t.me/{bot.username})"
     )
 
+    # Check for replied Telegram media first
     replied = message.reply_to_message
-
-    audio_telegram = None
-    video_telegram = None
-
+    telegram_media = None
+    
     if replied:
-        if replied.audio or replied.voice:
-            audio_telegram = replied.audio or replied.voice
-        if replied.video or replied.document:
-            video_telegram = replied.video or replied.document
+        if replied.audio:
+            telegram_media = replied.audio
+        elif replied.voice:
+            telegram_media = replied.voice
+        elif replied.video:
+            telegram_media = replied.video
+        elif replied.document and replied.document.mime_type:
+            # Check if document is audio/video
+            if replied.document.mime_type.startswith(('audio/', 'video/')):
+                telegram_media = replied.document
 
-    if audio_telegram or video_telegram:
-        return await message.reply_text(
-            "**🥺 Sorry, I Can't Stream Telegram Media Files Right Now.**"
-        )
-
-    # Check if query is provided
-    if len(message.command) < 2:
+    # If no Telegram media and no query provided, show help
+    if not telegram_media and len(message.command) < 2:
         return await message.reply_text(
             f"""**🥀 Give Me Some Query To Stream Audio Or Video❗...
-
 ℹ️ Example:
 ≽ Audio: `/play yalgaar`
 ≽ Video: `/vplay yalgaar`**"""
