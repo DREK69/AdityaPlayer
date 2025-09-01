@@ -382,16 +382,23 @@ async def start_stream_in_vc(client, message):
         await message.delete()
     except Exception:
         pass
+
     chat_id = message.chat.id
     mention = (
         message.from_user.mention
         if message.from_user else
         f"[Anonymous User](https://t.me/{bot.username})"
     )
+
     replied = message.reply_to_message
-    audio_telegram = replied.audio or replied.voice if replied else None
-    video_telegram = replied.video or replied.document if replied else None
-    
+
+    if replied:
+        audio_telegram = replied.audio or replied.voice
+        video_telegram = replied.video or replied.document
+    else:
+        audio_telegram = None
+        video_telegram = None
+
     if audio_telegram or video_telegram:
         try:
             return await message.reply_text(
@@ -598,6 +605,7 @@ Stream Audio Or Video❗...
             await bot.send_photo(console.LOG_GROUP_ID, photo=thumbnail, caption=log_message)
         except Exception:
             pass
+
 
 
 
