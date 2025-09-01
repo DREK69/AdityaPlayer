@@ -1034,5 +1034,16 @@ async def start_stream_in_vc(client, message):
 ⏱️ **Duration:** {duration_mins}
 📡 **Stream Type:** {stream_type}"""
 
-                await bot.send_photo(console.LOG_GROUP_ID, photo=thumbnail, caption=log_messa
-
+                await bot.send_photo(console.LOG_GROUP_ID, photo=thumbnail, caption=log_message)
+            except Exception:
+                pass
+                
+    except Exception as e:
+        error_msg = f"❌ **An error occurred:** `{str(e)}`"
+        if aux:
+            try:
+                await aux.edit(error_msg)
+            except:
+                await message.reply_text(error_msg)
+        else:
+            await message.reply_text(error_msg)
