@@ -496,7 +496,7 @@ class Call(PyTgCalls):
               
     # Position tracking methods for seek functionality
     async def seek_stream(self, chat_id: int, position: int):
-    """Seek to a specific position (in seconds) in the current stream"""
+      """Seek to a specific position (in seconds) in the current stream"""
     queued = self.queue.get(chat_id)
     if not queued:
         return False, "❌ Nothing is streaming."
