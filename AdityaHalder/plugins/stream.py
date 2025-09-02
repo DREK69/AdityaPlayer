@@ -561,7 +561,7 @@ async def start_stream_in_vc(client, message):
                 except:
                     pass
                 
-            pos = await call.add_to_queue(chat_id, media_stream, title, duration_formatted, thumbnail, mention)
+            pos = await call.add_to_queue(chat_id, media_stream, title, duration_formatted, thumbnail, mention, file_path)
             status = (
                 "✅ **Started Streaming Telegram Media in VC.**"
                 if pos == 0
@@ -805,7 +805,7 @@ async def start_stream_in_vc(client, message):
             except:
                 pass
             
-        pos = await call.add_to_queue(chat_id, media_stream, title, duration_mins, thumbnail, mention)
+        pos = await call.add_to_queue(chat_id, media_stream, title, duration_mins, thumbnail, mention, file_path)
         status = (
             "✅ **Started Streaming in VC.**"
             if pos == 0
@@ -894,3 +894,4 @@ async def start_stream_in_vc(client, message):
                 await message.reply_text(error_msg)
         else:
             await message.reply_text(error_msg)
+
