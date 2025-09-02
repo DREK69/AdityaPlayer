@@ -492,7 +492,7 @@ class Call(PyTgCalls):
         assistant = await group_assistant(self, chat_id)
         await assistant.leave_call(chat_id)
 
-Noneio.subprocess.DEVNULL
+        Noneio.subprocess.DEVNULL
             )
             await proc.communicate()
 
