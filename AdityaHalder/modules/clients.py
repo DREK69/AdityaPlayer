@@ -500,7 +500,7 @@ class Call(PyTgCalls):
 
         # Get current track
         current = queued[0]
-        media_path = current.get("file_path").media_path
+        media_path = current.get("file_path")
         duration = current.get("duration")
 
         # Convert duration string to seconds if needed
