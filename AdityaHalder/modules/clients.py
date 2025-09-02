@@ -493,7 +493,7 @@ class Call(PyTgCalls):
         await assistant.leave_call(chat_id)
 
         Noneio.subprocess.DEVNULL
-            )
+         #   )
             await proc.communicate()
 
             if not os.path.exists(temp_out):
