@@ -494,10 +494,17 @@ class Call(PyTgCalls):
 
         try:
             base, ext = os.path.splitext(media_path)
-            temp_out = f"{base}_seeked{ext}"
+            
+            # Fix: Use proper extension based on actual file format
+            # If original has .mp3 but contains Opus, change to .webm/.ogg
+            if ext.lower() == '.mp3':
+                temp_out = f"{base}_seeked.ogg"  # Use .ogg for Opus audio
+            else:
+                temp_out = f"{base}_seeked{ext}"
 
+            # Try copy first, if it fails use re-encoding
             cmd = f"ffmpeg -y -ss {position} -i '{media_path}' -c copy '{temp_out}'"
-            print(f"⚡ Running ffmpeg command: {cmd}")   # debug log
+            print(f"⚡ Running ffmpeg command: {cmd}")
 
             proc = await asyncio.create_subprocess_shell(
                 cmd,
@@ -508,6 +515,25 @@ class Call(PyTgCalls):
 
             print("⚡ FFmpeg stdout:", stdout.decode(errors="ignore"))
             print("⚡ FFmpeg stderr:", stderr.decode(errors="ignore"))
+
+            # If copy failed, try re-encoding
+            if not os.path.exists(temp_out) or proc.returncode != 0:
+                print("⚡ Copy failed, trying re-encoding...")
+                temp_out = f"{base}_seeked.mp3"  # Use .mp3 for re-encoded
+                
+                # Re-encode to MP3
+                cmd = f"ffmpeg -y -ss {position} -i '{media_path}' -acodec libmp3lame -ab 128k '{temp_out}'"
+                print(f"⚡ Re-encoding command: {cmd}")
+                
+                proc = await asyncio.create_subprocess_shell(
+                    cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, stderr = await proc.communicate()
+                
+                print("⚡ Re-encode stdout:", stdout.decode(errors="ignore"))
+                print("⚡ Re-encode stderr:", stderr.decode(errors="ignore"))
 
             if not os.path.exists(temp_out):
                 return False, "❌ Failed: temp file not created."
