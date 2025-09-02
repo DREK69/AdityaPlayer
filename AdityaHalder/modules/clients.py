@@ -263,8 +263,6 @@ class App(Client):
             )
 
 
-
-
 class Call(PyTgCalls):
     def __init__(self):
         self.adityaplayer1 = Client(
@@ -322,6 +320,9 @@ class Call(PyTgCalls):
     # Position tracking variables for seek functionality
     start_times = {}        # Track when each stream started
     current_positions = {}  # Track current position of each chat
+    
+    # Add processing lock to prevent duplicate calls
+    _processing_change = {}
 
     
     active_chats = []
@@ -414,46 +415,57 @@ class Call(PyTgCalls):
 
     async def change_stream(self, chat_id: int):
         from .. import bot
-        await self.pop_queue(chat_id)
-    
-        queued = self.queue.get(chat_id)
-        if not queued:
-            await bot.send_message(chat_id, "**❎ Queue is empty, So left\nfrom VC❗...**")
-            return await self.close_stream(chat_id)
-
-        aux = await bot.send_message(chat_id, "**🔁 Processing ✨...**")
-        pos  = 0
-        media_stream = queued[0].get("media_stream")
-
-        await self.start_stream(chat_id, media_stream)
         
-        # Add position tracking for new stream
-        self.start_times[chat_id] = time.time()
-        self.current_positions[chat_id] = 0
-    
-        thumbnail = queued[0].get("thumbnail")
-        title = queued[0].get("title")
-        duration = queued[0].get("duration")
-        mention = queued[0].get("requested_by")
-        buttons = InlineKeyboardMarkup(
-            [
+        # Prevent duplicate processing
+        if self._processing_change.get(chat_id, False):
+            return
+        
+        self._processing_change[chat_id] = True
+        
+        try:
+            await self.pop_queue(chat_id)
+        
+            queued = self.queue.get(chat_id)
+            if not queued:
+                await bot.send_message(chat_id, "**❎ Queue is empty, So left\nfrom VC❗...**")
+                return await self.close_stream(chat_id)
+
+            aux = await bot.send_message(chat_id, "**🔁 Processing ✨...**")
+            pos = 0
+            media_stream = queued[0].get("media_stream")
+
+            await self.start_stream(chat_id, media_stream)
+            
+            # Add position tracking for new stream
+            self.start_times[chat_id] = time.time()
+            self.current_positions[chat_id] = 0
+        
+            thumbnail = queued[0].get("thumbnail")
+            title = queued[0].get("title")
+            duration = queued[0].get("duration")
+            mention = queued[0].get("requested_by")
+            buttons = InlineKeyboardMarkup(
                 [
-                    InlineKeyboardButton(
-                        text="🗑️ Close", callback_data="close"
-                    )
-                ],
-            ]
-        )
-        caption = f"""
+                    [
+                        InlineKeyboardButton(
+                            text="🗑️ Close", callback_data="close"
+                        )
+                    ],
+                ]
+            )
+            caption = f"""
 ✅ **Started Streaming On VC.**
 **❍ Title:** [{title}...](https://t.me/{bot.me.username})
 **❍ Duration:** {duration}
 **❍ Requested By:** {mention}"""
-        try:
-            await aux.delete()
-        except Exception:
-            pass
-        await bot.send_photo(chat_id, photo=thumbnail, caption=caption, has_spoiler=True, reply_markup=buttons)
+            try:
+                await aux.delete()
+            except Exception:
+                pass
+            await bot.send_photo(chat_id, photo=thumbnail, caption=caption, has_spoiler=True, reply_markup=buttons)
+            
+        finally:
+            self._processing_change[chat_id] = False
     
 
 
@@ -516,7 +528,7 @@ class Call(PyTgCalls):
 
 
     async def add_to_queue(
-        self, chat_id, media_stream, title, duration, thumbnail, requested_by
+        self, chat_id, media_stream, title, duration, thumbnail, requested_by, file_path=None
     ):
         if chat_id not in self.queue:
             self.queue[chat_id] = []
@@ -526,7 +538,8 @@ class Call(PyTgCalls):
             "title": title,
             "duration": duration,
             "thumbnail": thumbnail,
-            "requested_by": requested_by
+            "requested_by": requested_by,
+            "file_path": file_path
         }
         self.queue[chat_id].append(item)
     
@@ -552,6 +565,7 @@ class Call(PyTgCalls):
         try:
             self.start_times.pop(chat_id, None)
             self.current_positions.pop(chat_id, None)
+            self._processing_change.pop(chat_id, None)
         except:
             pass
 
