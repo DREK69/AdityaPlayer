@@ -513,7 +513,64 @@ class Call(PyTgCalls):
         self.current_positions[chat_id] = new_position
 
 
+async def seek_stream(self, chat_id: int, position: int):
+        """Seek to a specific position (in seconds) in the current stream"""
+        queued = self.queue.get(chat_id)
+        if not queued:
+            return False, "❌ Nothing is streaming."
 
+        # Get current track
+        current = queued[0]
+        media_path = current.get("media_stream").media_path
+        duration = current.get("duration")
+
+        # Convert duration string to seconds if needed
+        if isinstance(duration, str) and duration != "Unknown":
+            try:
+                from ..modules.stream import convert_to_seconds
+                total_duration = convert_to_seconds(duration)
+            except Exception:
+                total_duration = None
+        elif isinstance(duration, (int, float)):
+            total_duration = int(duration)
+        else:
+            total_duration = None
+
+        if total_duration and position > total_duration:
+            return False, f"⚠️ Seek position exceeds track duration ({duration})."
+
+        try:
+            # Create a new stream starting at the new position
+            from pytgcalls.types import MediaStream, AudioQuality, VideoQuality
+
+            video_stream = hasattr(current["media_stream"], "video_parameters") and current["media_stream"].video_parameters is not None
+
+            new_stream = (
+                MediaStream(
+                    media_path=media_path,
+                    audio_parameters=AudioQuality.STUDIO,
+                    seek=position,
+                )
+                if not video_stream else
+                MediaStream(
+                    media_path=media_path,
+                    audio_parameters=AudioQuality.STUDIO,
+                    video_parameters=VideoQuality.HD_720p,
+                    seek=position,
+                )
+            )
+
+            assistant = await group_assistant(self, chat_id)
+            await assistant.play(chat_id, new_stream, config=self.call_config)
+
+            # Update position trackers
+            await self.update_position(chat_id, position)
+
+            # Replace current stream info
+            current["media_stream"] = new_stream
+            return True, f"⏩ Seeked to {position} sec."
+        except Exception as e:
+            return False, f"❌ Seek failed: {str(e)}"
 
     async def add_to_queue(
         self, chat_id, media_stream, title, duration, thumbnail, requested_by
