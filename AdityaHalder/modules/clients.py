@@ -1,11 +1,13 @@
 from .. import console
 from .database import get_assistant, group_assistant
 from .helpers import AssistantErr
+import time
 
 from pyrogram import Client, errors
 from pyrogram.enums import ChatMemberStatus
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
+from ntgcalls import TelegramServerError
 from pytgcalls import PyTgCalls, filters as fl
 from pytgcalls.exceptions import NoActiveGroupCall
 from pytgcalls.types import Call, GroupCallConfig, ChatUpdate, Update, StreamEnded
@@ -316,6 +318,10 @@ class Call(PyTgCalls):
     
     paused = {}
     queue = {}
+    
+    # Position tracking variables for seek functionality
+    start_times = {}        # Track when each stream started
+    current_positions = {}  # Track current position of each chat
 
     
     active_chats = []
@@ -404,15 +410,7 @@ class Call(PyTgCalls):
         
 
     
-    async def get_current_position(self, chat_id: int):
-    """Get current playback position (you'll need to track this)"""
-    # This is a placeholder - PyTgCalls doesn't provide direct position tracking
-    # You might need to implement your own timing mechanism
-    pass
-
-# Add position tracking variables in __init__:
-current_positions = {}  # Track current position of each chat
-start_times = {}       # Track when each stream started
+    
 
     async def change_stream(self, chat_id: int):
         from .. import bot
@@ -428,6 +426,10 @@ start_times = {}       # Track when each stream started
         media_stream = queued[0].get("media_stream")
 
         await self.start_stream(chat_id, media_stream)
+        
+        # Add position tracking for new stream
+        self.start_times[chat_id] = time.time()
+        self.current_positions[chat_id] = 0
     
         thumbnail = queued[0].get("thumbnail")
         title = queued[0].get("title")
@@ -444,7 +446,6 @@ start_times = {}       # Track when each stream started
         )
         caption = f"""
 ✅ **Started Streaming On VC.**
-
 **❍ Title:** [{title}...](https://t.me/{bot.me.username})
 **❍ Duration:** {duration}
 **❍ Requested By:** {mention}"""
@@ -492,6 +493,24 @@ start_times = {}       # Track when each stream started
         await assistant.leave_call(chat_id)
         
         
+    # Position tracking methods for seek functionality
+    async def get_current_position(self, chat_id: int):
+        """Get current playback position"""
+        if chat_id not in self.start_times:
+            return 0
+        
+        current_time = time.time()
+        start_time = self.start_times.get(chat_id, current_time)
+        base_position = self.current_positions.get(chat_id, 0)
+        
+        # Calculate elapsed time since stream started
+        elapsed = current_time - start_time
+        return int(base_position + elapsed)
+    
+    async def update_position(self, chat_id: int, new_position: int):
+        """Update the current position (used when seeking)"""
+        self.start_times[chat_id] = time.time()
+        self.current_positions[chat_id] = new_position
 
 
 
@@ -526,6 +545,13 @@ start_times = {}       # Track when each stream started
             
         try:
             self.queue.pop(chat_id)
+        except:
+            pass
+        
+        # Clean up position tracking data
+        try:
+            self.start_times.pop(chat_id, None)
+            self.current_positions.pop(chat_id, None)
         except:
             pass
 
@@ -618,7 +644,3 @@ start_times = {}       # Track when each stream started
         async def stream_end_handler(_, update: Update):
             chat_id = update.chat_id
             return await self.change_stream(chat_id)
-
-
-
-
