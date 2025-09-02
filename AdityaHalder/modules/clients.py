@@ -492,28 +492,7 @@ class Call(PyTgCalls):
         assistant = await group_assistant(self, chat_id)
         await assistant.leave_call(chat_id)
         
-        
-    # Position tracking methods for seek functionality
-    async def get_current_position(self, chat_id: int):
-        """Get current playback position"""
-        if chat_id not in self.start_times:
-            return 0
-        
-        current_time = time.time()
-        start_time = self.start_times.get(chat_id, current_time)
-        base_position = self.current_positions.get(chat_id, 0)
-        
-        # Calculate elapsed time since stream started
-        elapsed = current_time - start_time
-        return int(base_position + elapsed)
-    
-    async def update_position(self, chat_id: int, new_position: int):
-        """Update the current position (used when seeking)"""
-        self.start_times[chat_id] = time.time()
-        self.current_positions[chat_id] = new_position
-
-
-async def seek_stream(self, chat_id: int, position: int):
+    async def seek_stream(self, chat_id: int, position: int):
         """Seek to a specific position (in seconds) in the current stream"""
         queued = self.queue.get(chat_id)
         if not queued:
@@ -571,6 +550,25 @@ async def seek_stream(self, chat_id: int, position: int):
             return True, f"⏩ Seeked to {position} sec."
         except Exception as e:
             return False, f"❌ Seek failed: {str(e)}"
+    # Position tracking methods for seek functionality
+    async def get_current_position(self, chat_id: int):
+        """Get current playback position"""
+        if chat_id not in self.start_times:
+            return 0
+        
+        current_time = time.time()
+        start_time = self.start_times.get(chat_id, current_time)
+        base_position = self.current_positions.get(chat_id, 0)
+        
+        # Calculate elapsed time since stream started
+        elapsed = current_time - start_time
+        return int(base_position + elapsed)
+    
+    async def update_position(self, chat_id: int, new_position: int):
+        """Update the current position (used when seeking)"""
+        self.start_times[chat_id] = time.time()
+        self.current_positions[chat_id] = new_position
+
 
     async def add_to_queue(self, chat_id, media_stream, title, duration, thumbnail, requested_by):
         if chat_id not in self.queue:
