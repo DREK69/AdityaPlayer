@@ -1,4 +1,4 @@
-import aiofiles, aiohttp, base64, json, os, random, re, requests, asyncio
+import aiofiles, aiohttp, base64, json, os, random, re, requests, asyncio, time
 import httpx
 
 from .. import app, bot, call, cdz, console
@@ -15,6 +15,7 @@ from pytgcalls.exceptions import NoActiveGroupCall
 from pytgcalls.types import MediaStream
 from pytgcalls.types import AudioQuality, VideoQuality
 from youtubesearchpython.__future__ import VideosSearch
+
 
 
 def parse_query(query: str) -> str:
@@ -37,6 +38,7 @@ def parse_tg_link(link: str):
     return None, None
 
 
+
 async def fetch_song(query: str, fmt: str = "video"):
     api_url = "https://bitflow.in/api/youtube"
     params = {
@@ -49,27 +51,10 @@ async def fetch_song(query: str, fmt: str = "video"):
         async with httpx.AsyncClient(timeout=150) as client:
             response = await client.get(api_url, params=params)
             response.raise_for_status()
-            data = response.json()
-            print(f"📊 API Response: {data}")  # Debug log
-            return data
+            return response.json()
     except Exception as e:
         print(f"❌ fetch_song error: {e}")
         return {}
-
-
-async def download_direct_url(url: str, file_path: str):
-    """Download file directly from URL"""
-    try:
-        async with httpx.AsyncClient(timeout=300) as client:
-            async with client.stream('GET', url) as response:
-                response.raise_for_status()
-                async with aiofiles.open(file_path, 'wb') as f:
-                    async for chunk in response.aiter_bytes():
-                        await f.write(chunk)
-        return True
-    except Exception as e:
-        print(f"❌ Direct download error: {e}")
-        return False
 
 
 def convert_to_seconds(duration: str) -> int:
@@ -137,7 +122,6 @@ def trim_text(draw, text, font, max_width):
             text = text[:-1]
         text = text + "..."
     return text
-
 
 async def create_music_thumbnail(cover_path, title, artist, duration_seconds=None, output_path="thumbnail.png"):
     # Handle title/artist
@@ -354,7 +338,6 @@ async def create_music_thumbnail(cover_path, title, artist, duration_seconds=Non
     bg.save(output_path)
     return output_path
 
-
 async def generate_thumbnail(url: str) -> str:
     try:
         # Ensure cache directory exists
@@ -396,7 +379,6 @@ async def generate_thumbnail(url: str) -> str:
 
     except Exception:
         return "AdityaHalder/resource/thumbnail.png"
-
 
 async def make_thumbnail(image, title, channel, duration, output):
     return await create_music_thumbnail(image, title, channel, duration, output)
@@ -441,21 +423,22 @@ async def handle_telegram_media(client, message, telegram_media, video_stream=Fa
             except Exception as e:
                 return None, f"❌ Failed to download media: {str(e)}"
         
-        # Create media stream
+        # Create media stream with proper video/audio configuration
         try:
-            media_stream = (
-                MediaStream(
-                    media_path=file_path,
-                    video_flags=MediaStream.Flags.IGNORE,
-                    audio_parameters=AudioQuality.STUDIO,
-                )
-                if not video_stream
-                else MediaStream(
+            if video_stream and 'video' in file_extension:
+                # For video streaming
+                media_stream = MediaStream(
                     media_path=file_path,
                     audio_parameters=AudioQuality.STUDIO,
                     video_parameters=VideoQuality.HD_720p,
                 )
-            )
+            else:
+                # For audio streaming
+                media_stream = MediaStream(
+                    media_path=file_path,
+                    video_flags=MediaStream.Flags.IGNORE,
+                    audio_parameters=AudioQuality.STUDIO,
+                )
         except Exception as e:
             return None, f"❌ Failed to create media stream: {str(e)}"
         
@@ -471,6 +454,7 @@ async def handle_telegram_media(client, message, telegram_media, video_stream=Fa
         
     except Exception as e:
         return None, f"❌ Error processing Telegram media: {str(e)}"
+
 
 @bot.on_message(cdz(["play", "vplay"]) & ~filters.private)
 async def start_stream_in_vc(client, message):
@@ -533,6 +517,9 @@ async def start_stream_in_vc(client, message):
             if chat_id not in call.queue:
                 try:
                     await call.start_stream(chat_id, media_stream)
+                    # Add position tracking
+                    call.start_times[chat_id] = time.time()
+                    call.current_positions[chat_id] = 0
                 except NoActiveGroupCall:
                     if aux:
                         return await aux.edit("❌ No active voice chat found. Please join a voice chat first.")
@@ -568,11 +555,13 @@ async def start_stream_in_vc(client, message):
                 else f"✅ **Telegram Media Added To Queue At: #{pos}**"
             )
             
+            stream_type = "Video" if video_stream else "Audio"
             caption = f"""{status}
 
 **❍ Title:** {title}
 **❍ Artist:** {artist}
 **❍ Duration:** {duration_formatted}
+**❍ Stream Type:** {stream_type}
 **❍ Source:** Telegram Media
 **❍ Requested By:** {mention}"""
 
@@ -655,90 +644,43 @@ async def start_stream_in_vc(client, message):
         
         # Ensure downloads directory exists
         os.makedirs("downloads", exist_ok=True)
-        xyz = os.path.join("downloads", f"{id}.mp3")
+        xyz = os.path.join("downloads", f"{id}.{'mp4' if video_stream else 'mp3'}")
         
         if not os.path.exists(xyz):
-            song_data = await fetch_song(id)
+            song_data = await fetch_song(id, "video" if video_stream else "audio")
             if not song_data:
                 if aux:
                     return await aux.edit("❌ Failed to process query, please try again.")
                 else:
                     return await message.reply_text("❌ Failed to process query, please try again.")
-            
-            # Check different possible fields for download URL
-            song_url = None
-            download_url = None
-            
-            # Check various possible response formats
-            if "link" in song_data:
-                song_url = song_data["link"]
-            elif "download_url" in song_data:
-                download_url = song_data["download_url"]
-            elif "url" in song_data:
-                download_url = song_data["url"]
-            elif "audio_url" in song_data:
-                download_url = song_data["audio_url"]
-            elif "stream_url" in song_data:
-                download_url = song_data["stream_url"]
-            elif "direct_url" in song_data:
-                download_url = song_data["direct_url"]
-            elif isinstance(song_data, dict) and "data" in song_data:
-                # If response has nested data
-                data = song_data["data"]
-                if isinstance(data, dict):
-                    if "link" in data:
-                        song_url = data["link"]
-                    elif "download_url" in data:
-                        download_url = data["download_url"]
-                    elif "url" in data:
-                        download_url = data["url"]
-            
-            # Handle Telegram link format
-            if song_url:
-                c_username, message_id = parse_tg_link(song_url)
-                if not c_username or not message_id:
-                    if aux:
-                        return await aux.edit("❌ Invalid download link format.")
-                    else:
-                        return await message.reply_text("❌ Invalid download link format.")
-                        
-                try:
-                    msg = await client.get_messages(c_username, message_id)
-                    if aux:
-                        await aux.edit("**⬇️ Downloading ✨...**")
-                    await msg.download(file_name=xyz)
-                except Exception as e:
-                    if aux:
-                        return await aux.edit(f"❌ Failed to download: {str(e)}")
-                    else:
-                        return await message.reply_text(f"❌ Failed to download: {str(e)}")
-            
-            # Handle direct URL download
-            elif download_url:
-                try:
-                    if aux:
-                        await aux.edit("**⬇️ Downloading ✨...**")
-                    success = await download_direct_url(download_url, xyz)
-                    if not success:
-                        if aux:
-                            return await aux.edit("❌ Failed to download from direct URL.")
-                        else:
-                            return await message.reply_text("❌ Failed to download from direct URL.")
-                except Exception as e:
-                    if aux:
-                        return await aux.edit(f"❌ Failed to download: {str(e)}")
-                    else:
-                        return await message.reply_text(f"❌ Failed to download: {str(e)}")
-            
-            else:
-                # No valid download URL found
+                    
+            song_url = song_data.get("link")
+            if not song_url:
                 if aux:
-                    return await aux.edit(f"❌ No download link found in API response. Available fields: {list(song_data.keys())}")
+                    return await aux.edit("❌ No download link found.")
                 else:
-                    return await message.reply_text(f"❌ No download link found in API response. Available fields: {list(song_data.keys())}")
-                
+                    return await message.reply_text("❌ No download link found.")
+                    
+            c_username, message_id = parse_tg_link(song_url)
+            if not c_username or not message_id:
+                if aux:
+                    return await aux.edit("❌ Invalid download link format.")
+                else:
+                    return await message.reply_text("❌ Invalid download link format.")
+                    
+            try:
+                msg = await client.get_messages(c_username, message_id)
+                if aux:
+                    await aux.edit("**⬇️ Downloading ✨...**")
+                await msg.download(file_name=xyz)
+            except Exception as e:
+                if aux:
+                    return await aux.edit(f"❌ Failed to download: {str(e)}")
+                else:
+                    return await message.reply_text(f"❌ Failed to download: {str(e)}")
+            
             # Wait for file to be completely downloaded
-            max_wait = 60  # seconds
+            max_wait = 30  # seconds
             wait_count = 0
             while not os.path.exists(xyz) and wait_count < max_wait:
                 await asyncio.sleep(1)
@@ -752,21 +694,22 @@ async def start_stream_in_vc(client, message):
 
         file_path = xyz
 
-        # Create media stream with proper error handling
+        # Create media stream with proper video/audio configuration
         try:
-            media_stream = (
-                MediaStream(
-                    media_path=file_path,
-                    video_flags=MediaStream.Flags.IGNORE,
-                    audio_parameters=AudioQuality.STUDIO,
-                )
-                if not video_stream
-                else MediaStream(
+            if video_stream:
+                # For video streaming
+                media_stream = MediaStream(
                     media_path=file_path,
                     audio_parameters=AudioQuality.STUDIO,
                     video_parameters=VideoQuality.HD_720p,
                 )
-            )
+            else:
+                # For audio streaming
+                media_stream = MediaStream(
+                    media_path=file_path,
+                    video_flags=MediaStream.Flags.IGNORE,
+                    audio_parameters=AudioQuality.STUDIO,
+                )
         except Exception as e:
             if aux:
                 return await aux.edit(f"❌ **Failed to create media stream:** `{str(e)}`")
@@ -777,6 +720,9 @@ async def start_stream_in_vc(client, message):
         if chat_id not in call.queue:
             try:
                 await call.start_stream(chat_id, media_stream)
+                # Add position tracking
+                call.start_times[chat_id] = time.time()
+                call.current_positions[chat_id] = 0
             except NoActiveGroupCall:
                 if aux:
                     return await aux.edit("❌ No active voice chat found. Please join a voice chat first.")
@@ -812,10 +758,12 @@ async def start_stream_in_vc(client, message):
             else f"✅ **Added To Queue At: #{pos}**"
         )
         
+        stream_type = "Video" if video_stream else "Audio"
         caption = f"""{status}
 
 **❍ Title:** [{title}...]({link})
 **❍ Duration:** {duration_mins}
+**❍ Stream Type:** {stream_type}
 **❍ Requested By:** {mention}"""
 
         buttons = InlineKeyboardMarkup(
@@ -866,8 +814,6 @@ async def start_stream_in_vc(client, message):
                 else:
                     req_user = "Anonymous User"
                     user_id = "N/A"
-
-                stream_type = "Audio" if not video_stream else "Video"
 
                 log_message = f"""🎉 **{mention} Just Played A Song.**
 
