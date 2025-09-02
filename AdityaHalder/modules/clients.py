@@ -500,7 +500,7 @@ class Call(PyTgCalls):
 
         # Get current track
         current = queued[0]
-        media_path = current.get("media_stream").media_path
+        media_path = current.get("file_path").media_path
         duration = current.get("duration")
 
         # Convert duration string to seconds if needed
@@ -570,20 +570,20 @@ class Call(PyTgCalls):
         self.current_positions[chat_id] = new_position
 
 
-    async def add_to_queue(self, chat_id, media_stream, title, duration, thumbnail, requested_by):
+    async def add_to_queue(self, chat_id, media_stream, title, duration, thumbnail, requested_by, file_path=None):
         if chat_id not in self.queue:
             self.queue[chat_id] = []
-    
-        item = {
-            "media_stream": media_stream,
-            "title": title,
-            "duration": duration,
-            "thumbnail": thumbnail,
-            "requested_by": requested_by
-        }
-        self.queue[chat_id].append(item)
-    
-        return len(self.queue[chat_id]) - 1
+            item = {
+              "media_stream": media_stream,
+              "title": title,
+              "duration": duration,
+              "thumbnail": thumbnail,
+              "requested_by": requested_by,
+              "file_path": file_path,   # 👈 yeh naya field
+                  }
+            self.queue[chat_id].append(item)
+
+            return len(self.queue[chat_id]) - 1
 
 
     async def pop_queue(self, chat_id: int):
