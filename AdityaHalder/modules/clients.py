@@ -490,10 +490,7 @@ class Call(PyTgCalls):
 
     async def stop_stream(self, chat_id: int):
         assistant = await group_assistant(self, chat_id)
-        await assistant.leave_call(chat_id)
-
-        Noneio.subprocess.DEVNULL
-         #   )
+        await assistant.leave_call()chat_id)Noneio.subprocess.DEVNULL):
             await proc.communicate()
 
             if not os.path.exists(temp_out):
