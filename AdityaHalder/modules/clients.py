@@ -404,7 +404,15 @@ class Call(PyTgCalls):
         
 
     
-    
+    async def get_current_position(self, chat_id: int):
+    """Get current playback position (you'll need to track this)"""
+    # This is a placeholder - PyTgCalls doesn't provide direct position tracking
+    # You might need to implement your own timing mechanism
+    pass
+
+# Add position tracking variables in __init__:
+current_positions = {}  # Track current position of each chat
+start_times = {}       # Track when each stream started
 
     async def change_stream(self, chat_id: int):
         from .. import bot
