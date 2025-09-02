@@ -397,6 +397,7 @@ async def generate_thumbnail(url: str) -> str:
     except Exception:
         return "AdityaHalder/resource/thumbnail.png"
 
+
 async def make_thumbnail(image, title, channel, duration, output):
     return await create_music_thumbnail(image, title, channel, duration, output)
 
@@ -419,8 +420,6 @@ def get_media_type(telegram_media):
             return 'audio'
     
     return 'audio'  # Default to audio
-
-
 async def handle_telegram_media(client, message, telegram_media, video_stream=False):
     """Handle Telegram media files (audio, voice, video, documents)"""
     try:
@@ -617,12 +616,12 @@ async def start_stream_in_vc(client, message):
             
             caption = f"""{status}
 
-**❂ Title:** {title}
-**❂ Artist:** {artist}
-**❂ Duration:** {duration_formatted}
-**❂ Type:** {stream_type_display}
-**❂ Source:** Telegram Media
-**❂ Requested By:** {mention}"""
+**❍ Title:** {title}
+**❍ Artist:** {artist}
+**❍ Duration:** {duration_formatted}
+**❍ Type:** {stream_type_display}
+**❍ Source:** Telegram Media
+**❍ Requested By:** {mention}"""
 
             buttons = InlineKeyboardMarkup(
                 [
@@ -888,12 +887,12 @@ async def start_stream_in_vc(client, message):
         
         caption = f"""{status}
 
-**❂ Title:** [{title}...]({link})
-**❂ Duration:** {duration_mins}
-**❂ Type:** {stream_type_display}
-**❂ Views:** {views}
-**❂ Channel:** [{channel}]({channellink})
-**❂ Requested By:** {mention}"""
+**❍ Title:** [{title}...]({link})
+**❍ Duration:** {duration_mins}
+**❍ Type:** {stream_type_display}
+**❍ Views:** {views}
+**❍ Channel:** [{channel}]({channellink})
+**❍ Requested By:** {mention}"""
 
         buttons = InlineKeyboardMarkup(
             [
