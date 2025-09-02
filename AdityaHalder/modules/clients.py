@@ -2,6 +2,9 @@ from .. import console
 from .database import get_assistant, group_assistant
 from .helpers import AssistantErr
 import time
+import os
+import asyncio
+import sys
 
 from pyrogram import Client, errors
 from pyrogram.enums import ChatMemberStatus
@@ -314,7 +317,6 @@ class Call(PyTgCalls):
         )
         
     call_config = GroupCallConfig(auto_start=False)
-
     
     paused = {}
     queue = {}
@@ -322,11 +324,8 @@ class Call(PyTgCalls):
     # Position tracking variables for seek functionality
     start_times = {}        # Track when each stream started
     current_positions = {}  # Track current position of each chat
-
     
     active_chats = []
-
-
 
     async def ensure_assistant_in_chat(self, chat_id):
         from .. import bot
@@ -350,7 +349,6 @@ class Call(PyTgCalls):
                 return True
             
             except errors.ChatWriteForbidden:
-            
                 try:
                     await bot.approve_chat_join_request(chat_id, assistant.id)
                     return True
@@ -359,7 +357,6 @@ class Call(PyTgCalls):
                 except Exception:
                     raise AssistantErr("⚠️ Assistant requested to join. Please approve manually.")
             
-
             except errors.InviteHashExpired:
                 raise AssistantErr("❌ The invite link expired.")
             except errors.InviteHashInvalid:
@@ -379,7 +376,6 @@ class Call(PyTgCalls):
             except Exception as e:
                 raise AssistantErr(f"⚠️ Unexpected error while assistant tried to join:\n`{e}`")
         
-
         try:
             member = await bot.get_chat_member(chat_id, assistant.id)
 
@@ -407,10 +403,6 @@ class Call(PyTgCalls):
 
         except Exception as e:
             raise AssistantErr(f"⚠️ Unexpected error while checking:\n`{e}`")
-        
-
-    
-    
 
     async def change_stream(self, chat_id: int):
         from .. import bot
@@ -454,11 +446,7 @@ class Call(PyTgCalls):
         except Exception:
             pass
         await bot.send_photo(chat_id, photo=thumbnail, caption=caption, has_spoiler=True, reply_markup=buttons)
-    
 
-
-
-    
     async def start_stream(self, chat_id: int, media_stream):
         assistant = await group_assistant(self, chat_id)
         try:
@@ -471,7 +459,6 @@ class Call(PyTgCalls):
             if chat_id not in self.active_chats:
                 self.active_chats.append(chat_id)
         
-    
     async def pause_stream(self, chat_id: int):
         assistant = await group_assistant(self, chat_id)
         await assistant.pause(chat_id)
@@ -490,12 +477,42 @@ class Call(PyTgCalls):
 
     async def stop_stream(self, chat_id: int):
         assistant = await group_assistant(self, chat_id)
-        await assistant.leave_call()chat_id)Noneio.subprocess.DEVNULL):
-            await proc.communicate()
+        await assistant.leave_call(chat_id)
+
+    # Position tracking methods for seek functionality
+    async def seek_stream(self, chat_id: int, position: int):
+        """Seek to a specific position (in seconds) in the current stream"""
+        queued = self.queue.get(chat_id)
+        if not queued:
+            return False, "❌ Nothing is streaming."
+
+        current = queued[0]
+        media_path = current.get("file_path")
+
+        if not media_path or not os.path.exists(media_path):
+            return False, "⚠️ Cannot seek because file not found."
+
+        try:
+            base, ext = os.path.splitext(media_path)
+            temp_out = f"{base}_seeked{ext}"
+
+            cmd = f"ffmpeg -y -ss {position} -i '{media_path}' -c copy '{temp_out}'"
+            print(f"⚡ Running ffmpeg command: {cmd}")   # debug log
+
+            proc = await asyncio.create_subprocess_shell(
+                cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await proc.communicate()
+
+            print("⚡ FFmpeg stdout:", stdout.decode(errors="ignore"))
+            print("⚡ FFmpeg stderr:", stderr.decode(errors="ignore"))
 
             if not os.path.exists(temp_out):
-                return False, "❌ Failed to process file for seeking."
+                return False, "❌ Failed: temp file not created."
 
+            from pytgcalls.types import MediaStream, AudioQuality, VideoQuality
             video_stream = (
                 hasattr(current["media_stream"], "video_parameters")
                 and current["media_stream"].video_parameters is not None
@@ -514,18 +531,18 @@ class Call(PyTgCalls):
                     video_parameters=VideoQuality.HD_720p,
                 )
 
-            # play new stream
             assistant = await group_assistant(self, chat_id)
             await assistant.play(chat_id, new_stream, config=self.call_config)
 
-            # update trackers
             await self.update_position(chat_id, position)
             current["media_stream"] = new_stream
             current["file_path"] = temp_out
 
             return True, f"⏩ Seeked to {position} sec."
         except Exception as e:
-            return False, f"❌ Seek failed: {str(e)}"
+            import traceback
+            traceback.print_exc()   # full traceback
+            return False, f"❌ Seek failed: {type(e).__name__} - {str(e)}"
    
     async def get_current_position(self, chat_id: int):
         """Get current playback position"""
@@ -545,7 +562,6 @@ class Call(PyTgCalls):
         self.start_times[chat_id] = time.time()
         self.current_positions[chat_id] = new_position
 
-
     async def add_to_queue(self, chat_id, media_stream, title, duration, thumbnail, requested_by, file_path=None):
         if chat_id not in self.queue:
             self.queue[chat_id] = []
@@ -555,17 +571,15 @@ class Call(PyTgCalls):
             "duration": duration,
             "thumbnail": thumbnail,
             "requested_by": requested_by,
-            "file_path": file_path,   # 👈 yeh naya field
+            "file_path": file_path,
         }
         self.queue[chat_id].append(item)
         return len(self.queue[chat_id]) - 1
-
 
     async def pop_queue(self, chat_id: int):
         if chat_id in self.queue and self.queue[chat_id]:
             return self.queue[chat_id].pop(0)
         return None
-
 
     async def clear_queue(self, chat_id: int):
         if chat_id in self.active_chats:
@@ -583,22 +597,17 @@ class Call(PyTgCalls):
         except:
             pass
 
-
-
     async def is_stream_off(self, chat_id: int) -> bool:
         mode = self.paused.get(chat_id)
         if not mode:
             return False
         return mode
 
-
     async def stream_on(self, chat_id: int):
         self.paused[chat_id] = False
 
-
     async def stream_off(self, chat_id: int):
         self.paused[chat_id] = True
-
 
     async def close_stream(self, chat_id: int):
         try:
@@ -607,11 +616,6 @@ class Call(PyTgCalls):
             pass
         await self.clear_queue(chat_id)
 
-
-
-    
-        
-        
     async def ping(self):
         pings = []
         if console.STRING1:
@@ -627,7 +631,6 @@ class Call(PyTgCalls):
         
         return str(round(sum(pings) / len(pings), 3))
 
-
     async def start(self):
         console.logs(__name__).info("🎧 Starting PyTgCalls Client\n")
         if console.STRING1:
@@ -640,9 +643,6 @@ class Call(PyTgCalls):
             await self.four.start()
         if console.STRING5:
             await self.five.start()
-        
-
-
 
     async def decorators(self):
         @self.one.on_update(fl.chat_update(ChatUpdate.Status.CLOSED_VOICE_CHAT))
@@ -663,7 +663,6 @@ class Call(PyTgCalls):
         async def stream_services_handler(_, update: Update):
             return await self.close_stream(update.chat_id)
     
-
         @self.one.on_update(fl.stream_end())
         @self.two.on_update(fl.stream_end())
         @self.three.on_update(fl.stream_end())
