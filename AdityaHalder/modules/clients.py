@@ -492,70 +492,40 @@ class Call(PyTgCalls):
         assistant = await group_assistant(self, chat_id)
         await assistant.leave_call(chat_id)
 
-    # Position tracking methods for seek functionality
-    async def seek_stream(self, chat_id: int, position: int):
-        """Seek to a specific position (in seconds) in the current stream"""
-        queued = self.queue.get(chat_id)
-        if not queued:
-            return False, "❌ Nothing is streaming."
+Noneio.subprocess.DEVNULL
+            )
+            await proc.communicate()
 
-        # Get current track
-        current = queued[0]
-        media_path = current.get("file_path")   # we saved file_path earlier
-        duration = current.get("duration")
+            if not os.path.exists(temp_out):
+                return False, "❌ Failed to process file for seeking."
 
-        if not media_path:
-            return False, "⚠️ Cannot seek because file path is missing."
-
-        # Convert duration string to seconds if needed
-        if isinstance(duration, str) and duration != "Unknown":
-            try:
-                from ..modules.stream import convert_to_seconds
-                total_duration = convert_to_seconds(duration)
-            except Exception:
-                total_duration = None
-        elif isinstance(duration, (int, float)):
-            total_duration = int(duration)
-        else:
-            total_duration = None
-
-        if total_duration and position > total_duration:
-            return False, f"⚠️ Seek position exceeds track duration ({duration})."
-
-        try:
-            from pytgcalls.types import MediaStream, AudioQuality, VideoQuality
-
-            # Check if it's a video stream
             video_stream = (
                 hasattr(current["media_stream"], "video_parameters")
                 and current["media_stream"].video_parameters is not None
             )
 
-            # Use FFmpeg command with -ss for seeking
             if not video_stream:
-                cmd = f"ffmpeg -ss {position} -i '{media_path}' -f s16le -ac 2 -ar 48000 pipe:1"
                 new_stream = MediaStream(
-                    media_path=cmd,
+                    media_path=temp_out,
                     audio_parameters=AudioQuality.STUDIO,
+                    video_flags=MediaStream.Flags.IGNORE,
                 )
             else:
-                cmd = f"ffmpeg -ss {position} -i '{media_path}' -f matroska -vcodec libx264 -preset ultrafast -acodec aac -ar 48000 -ac 2 pipe:1"
                 new_stream = MediaStream(
-                    media_path=cmd,
+                    media_path=temp_out,
                     audio_parameters=AudioQuality.STUDIO,
                     video_parameters=VideoQuality.HD_720p,
                 )
 
-            # Restart stream with new ffmpeg command
+            # play new stream
             assistant = await group_assistant(self, chat_id)
             await assistant.play(chat_id, new_stream, config=self.call_config)
 
-            # Update position trackers
+            # update trackers
             await self.update_position(chat_id, position)
-
-            # Replace current stream info
             current["media_stream"] = new_stream
-            current["file_path"] = media_path
+            current["file_path"] = temp_out
+
             return True, f"⏩ Seeked to {position} sec."
         except Exception as e:
             return False, f"❌ Seek failed: {str(e)}"
