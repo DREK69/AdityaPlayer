@@ -572,9 +572,7 @@ async def seek_stream(self, chat_id: int, position: int):
         except Exception as e:
             return False, f"❌ Seek failed: {str(e)}"
 
-    async def add_to_queue(
-        self, chat_id, media_stream, title, duration, thumbnail, requested_by
-    ):
+    async def add_to_queue(self, chat_id, media_stream, title, duration, thumbnail, requested_by):
         if chat_id not in self.queue:
             self.queue[chat_id] = []
     
