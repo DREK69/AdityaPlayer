@@ -397,27 +397,47 @@ async def generate_thumbnail(url: str) -> str:
     except Exception:
         return "AdityaHalder/resource/thumbnail.png"
 
-
 async def make_thumbnail(image, title, channel, duration, output):
     return await create_music_thumbnail(image, title, channel, duration, output)
+
+
+def get_media_type(telegram_media):
+    """Determine media type from Telegram media object"""
+    if hasattr(telegram_media, 'mime_type') and telegram_media.mime_type:
+        mime_type = telegram_media.mime_type.lower()
+        if mime_type.startswith('video/'):
+            return 'video'
+        elif mime_type.startswith('audio/'):
+            return 'audio'
+    
+    # Fallback based on media type
+    if hasattr(telegram_media, '__class__'):
+        class_name = telegram_media.__class__.__name__.lower()
+        if 'video' in class_name:
+            return 'video'
+        elif 'audio' in class_name or 'voice' in class_name:
+            return 'audio'
+    
+    return 'audio'  # Default to audio
 
 
 async def handle_telegram_media(client, message, telegram_media, video_stream=False):
     """Handle Telegram media files (audio, voice, video, documents)"""
     try:
         # Get media info
-        media_title = getattr(telegram_media, 'title', None) or getattr(telegram_media, 'file_name', None) or "Telegram Audio"
+        media_title = getattr(telegram_media, 'title', None) or getattr(telegram_media, 'file_name', None) or "Telegram Media"
         media_performer = getattr(telegram_media, 'performer', None) or "Unknown Artist"
         media_duration = getattr(telegram_media, 'duration', 0)
         
-        # Create unique filename
+        # Determine actual media type
+        actual_media_type = get_media_type(telegram_media)
+        
+        # Create unique filename with proper extension
         file_id = telegram_media.file_id
-        file_extension = ".mp3"
-        if hasattr(telegram_media, 'mime_type') and telegram_media.mime_type:
-            if 'video' in telegram_media.mime_type:
-                file_extension = ".mp4"
-            elif 'audio' in telegram_media.mime_type:
-                file_extension = ".mp3"
+        if actual_media_type == 'video' or video_stream:
+            file_extension = ".mp4"
+        else:
+            file_extension = ".mp3"
         
         # Ensure downloads directory exists
         os.makedirs("downloads", exist_ok=True)
@@ -428,34 +448,51 @@ async def handle_telegram_media(client, message, telegram_media, video_stream=Fa
             try:
                 await message.reply_to_message.download(file_name=file_path)
                 
-                # Wait for download completion
-                max_wait = 60
+                # Wait for download completion with better checking
+                max_wait = 120  # Increased timeout for video files
                 wait_count = 0
-                while not os.path.exists(file_path) and wait_count < max_wait:
+                while wait_count < max_wait:
+                    if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
+                        # Wait a bit more to ensure complete download
+                        await asyncio.sleep(2)
+                        break
                     await asyncio.sleep(1)
                     wait_count += 1
                     
-                if not os.path.exists(file_path):
-                    return None, "❌ Download timeout."
+                if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
+                    return None, "❌ Download failed or file is empty."
                     
             except Exception as e:
                 return None, f"❌ Failed to download media: {str(e)}"
         
-        # Create media stream
+        # Verify file exists and has content
+        if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
+            return None, "❌ Downloaded file is missing or empty."
+        
+        # Create media stream with proper configuration based on stream type
         try:
-            media_stream = (
-                MediaStream(
-                    media_path=file_path,
-                    video_flags=MediaStream.Flags.IGNORE,
-                    audio_parameters=AudioQuality.STUDIO,
-                )
-                if not video_stream
-                else MediaStream(
+            if video_stream and actual_media_type == 'video':
+                # For video streaming with video file
+                media_stream = MediaStream(
                     media_path=file_path,
                     audio_parameters=AudioQuality.STUDIO,
                     video_parameters=VideoQuality.HD_720p,
                 )
-            )
+            elif video_stream and actual_media_type == 'audio':
+                # For vplay command on audio file - still show video with album art
+                media_stream = MediaStream(
+                    media_path=file_path,
+                    audio_parameters=AudioQuality.STUDIO,
+                    video_parameters=VideoQuality.HD_720p,  # Enable video for album art
+                )
+            else:
+                # For audio streaming only (play command)
+                media_stream = MediaStream(
+                    media_path=file_path,
+                    video_flags=MediaStream.Flags.IGNORE,
+                    audio_parameters=AudioQuality.STUDIO,
+                )
+                
         except Exception as e:
             return None, f"❌ Failed to create media stream: {str(e)}"
         
@@ -466,7 +503,8 @@ async def handle_telegram_media(client, message, telegram_media, video_stream=Fa
             'duration_sec': media_duration,
             'duration_formatted': format_duration(media_duration) if media_duration else "Unknown",
             'file_path': file_path,
-            'thumbnail_url': "AdityaHalder/resource/thumbnail.png"  # Default thumbnail for Telegram media
+            'thumbnail_url': "AdityaHalder/resource/thumbnail.png",  # Default thumbnail for Telegram media
+            'media_type': actual_media_type
         }, None
         
     except Exception as e:
@@ -528,6 +566,11 @@ async def start_stream_in_vc(client, message):
             duration_formatted = media_info['duration_formatted']
             file_path = media_info['file_path']
             thumbnail_url = media_info['thumbnail_url']
+            actual_media_type = media_info['media_type']
+            
+            # Update aux message with streaming status
+            if aux:
+                await aux.edit("**🎵 Starting stream...**")
             
             # Try to stream
             if chat_id not in call.queue:
@@ -562,19 +605,24 @@ async def start_stream_in_vc(client, message):
                     pass
                 
             pos = await call.add_to_queue(chat_id, media_stream, title, duration_formatted, thumbnail, mention, file_path)
+            
+            # Determine stream type for display
+            stream_type_display = "Video" if (video_stream and actual_media_type == 'video') else "Audio"
+            
             status = (
-                "✅ **Started Streaming Telegram Media in VC.**"
+                f"✅ **Started Streaming Telegram {stream_type_display} in VC.**"
                 if pos == 0
-                else f"✅ **Telegram Media Added To Queue At: #{pos}**"
+                else f"✅ **Telegram {stream_type_display} Added To Queue At: #{pos}**"
             )
             
             caption = f"""{status}
 
-**❍ Title:** {title}
-**❍ Artist:** {artist}
-**❍ Duration:** {duration_formatted}
-**❍ Source:** Telegram Media
-**❍ Requested By:** {mention}"""
+**❂ Title:** {title}
+**❂ Artist:** {artist}
+**❂ Duration:** {duration_formatted}
+**❂ Type:** {stream_type_display}
+**❂ Source:** Telegram Media
+**❂ Requested By:** {mention}"""
 
             buttons = InlineKeyboardMarkup(
                 [
@@ -655,10 +703,16 @@ async def start_stream_in_vc(client, message):
         
         # Ensure downloads directory exists
         os.makedirs("downloads", exist_ok=True)
-        xyz = os.path.join("downloads", f"{id}.mp3")
+        
+        # Choose file extension based on stream type
+        file_extension = ".mp4" if video_stream else ".mp3"
+        xyz = os.path.join("downloads", f"{id}{file_extension}")
         
         if not os.path.exists(xyz):
-            song_data = await fetch_song(id)
+            # Request appropriate format from API
+            format_type = "video" if video_stream else "audio"
+            song_data = await fetch_song(id, format_type)
+            
             if not song_data:
                 if aux:
                     return await aux.edit("❌ Failed to process query, please try again.")
@@ -678,6 +732,8 @@ async def start_stream_in_vc(client, message):
                 download_url = song_data["url"]
             elif "audio_url" in song_data:
                 download_url = song_data["audio_url"]
+            elif "video_url" in song_data and video_stream:
+                download_url = song_data["video_url"]
             elif "stream_url" in song_data:
                 download_url = song_data["stream_url"]
             elif "direct_url" in song_data:
@@ -692,6 +748,10 @@ async def start_stream_in_vc(client, message):
                         download_url = data["download_url"]
                     elif "url" in data:
                         download_url = data["url"]
+                    elif "video_url" in data and video_stream:
+                        download_url = data["video_url"]
+                    elif "audio_url" in data:
+                        download_url = data["audio_url"]
             
             # Handle Telegram link format
             if song_url:
@@ -738,40 +798,50 @@ async def start_stream_in_vc(client, message):
                     return await message.reply_text(f"❌ No download link found in API response. Available fields: {list(song_data.keys())}")
                 
             # Wait for file to be completely downloaded
-            max_wait = 60  # seconds
+            max_wait = 120  # Increased timeout for video files
             wait_count = 0
-            while not os.path.exists(xyz) and wait_count < max_wait:
+            while wait_count < max_wait:
+                if os.path.exists(xyz) and os.path.getsize(xyz) > 0:
+                    # Wait a bit more to ensure complete download
+                    await asyncio.sleep(3)
+                    break
                 await asyncio.sleep(1)
                 wait_count += 1
                 
-            if not os.path.exists(xyz):
+            if not os.path.exists(xyz) or os.path.getsize(xyz) == 0:
                 if aux:
-                    return await aux.edit("❌ Download timeout.")
+                    return await aux.edit("❌ Download timeout or file is empty.")
                 else:
-                    return await message.reply_text("❌ Download timeout.")
+                    return await message.reply_text("❌ Download timeout or file is empty.")
 
         file_path = xyz
 
-        # Create media stream with proper error handling
+        # Create media stream with proper error handling and configuration
         try:
-            media_stream = (
-                MediaStream(
-                    media_path=file_path,
-                    video_flags=MediaStream.Flags.IGNORE,
-                    audio_parameters=AudioQuality.STUDIO,
-                )
-                if not video_stream
-                else MediaStream(
+            if video_stream:
+                # For video streaming (vplay command) - always include video track
+                media_stream = MediaStream(
                     media_path=file_path,
                     audio_parameters=AudioQuality.STUDIO,
                     video_parameters=VideoQuality.HD_720p,
                 )
-            )
+            else:
+                # For audio streaming (play command) - audio only
+                media_stream = MediaStream(
+                    media_path=file_path,
+                    video_flags=MediaStream.Flags.IGNORE,
+                    audio_parameters=AudioQuality.STUDIO,
+                )
+                
         except Exception as e:
             if aux:
                 return await aux.edit(f"❌ **Failed to create media stream:** `{str(e)}`")
             else:
                 return await message.reply_text(f"❌ **Failed to create media stream:** `{str(e)}`")
+        
+        # Update aux message
+        if aux:
+            await aux.edit("**🎵 Starting stream...**")
         
         # Check if chat_id is in queue, if not start streaming
         if chat_id not in call.queue:
@@ -806,17 +876,24 @@ async def start_stream_in_vc(client, message):
                 pass
             
         pos = await call.add_to_queue(chat_id, media_stream, title, duration_mins, thumbnail, mention, file_path)
+        
+        # Determine stream type for display
+        stream_type_display = "Video" if video_stream else "Audio"
+        
         status = (
-            "✅ **Started Streaming in VC.**"
+            f"✅ **Started Streaming {stream_type_display} in VC.**"
             if pos == 0
-            else f"✅ **Added To Queue At: #{pos}**"
+            else f"✅ **{stream_type_display} Added To Queue At: #{pos}**"
         )
         
         caption = f"""{status}
 
-**❍ Title:** [{title}...]({link})
-**❍ Duration:** {duration_mins}
-**❍ Requested By:** {mention}"""
+**❂ Title:** [{title}...]({link})
+**❂ Duration:** {duration_mins}
+**❂ Type:** {stream_type_display}
+**❂ Views:** {views}
+**❂ Channel:** [{channel}]({channellink})
+**❂ Requested By:** {mention}"""
 
         buttons = InlineKeyboardMarkup(
             [
@@ -867,8 +944,6 @@ async def start_stream_in_vc(client, message):
                     req_user = "Anonymous User"
                     user_id = "N/A"
 
-                stream_type = "Audio" if not video_stream else "Video"
-
                 log_message = f"""🎉 **{mention} Just Played A Song.**
 
 📍 **Chat:** {chat_name}
@@ -879,7 +954,9 @@ async def start_stream_in_vc(client, message):
 🔎 **Query:** {query}
 🎶 **Title:** [{title}...]({link})
 ⏱️ **Duration:** {duration_mins}
-📡 **Stream Type:** {stream_type}"""
+📡 **Stream Type:** {stream_type_display}
+👁️ **Views:** {views}
+📺 **Channel:** [{channel}]({channellink})"""
 
                 await bot.send_photo(console.LOG_GROUP_ID, photo=thumbnail, caption=log_message)
             except Exception:
@@ -894,4 +971,3 @@ async def start_stream_in_vc(client, message):
                 await message.reply_text(error_msg)
         else:
             await message.reply_text(error_msg)
-
