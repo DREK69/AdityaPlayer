@@ -50,7 +50,7 @@ async def fetch_song(query: str, fmt: str = "video"):
             response = await client.get(api_url, params=params)
             response.raise_for_status()
             data = response.json()
-            print(f"📊 API Response: {data}")  # Debug log
+            print(f"📊 API Response: {data}")
             return data
     except Exception as e:
         print(f"❌ fetch_song error: {e}")
@@ -85,6 +85,10 @@ def convert_to_seconds(duration: str) -> int:
 
 
 def format_duration(seconds: int) -> str:
+    if not isinstance(seconds, (int, float)) or seconds <= 0:
+        return "Unknown"
+    
+    seconds = int(seconds)
     days = seconds // 86400
     hours = (seconds % 86400) // 3600
     minutes = (seconds % 3600) // 60
@@ -104,6 +108,10 @@ def format_duration(seconds: int) -> str:
 
 
 def seconds_to_hhmmss(seconds):
+    if not isinstance(seconds, (int, float)) or seconds <= 0:
+        return "00:00"
+    
+    seconds = int(seconds)
     if seconds < 3600:
         minutes = seconds // 60
         sec = seconds % 60
@@ -146,6 +154,13 @@ async def create_music_thumbnail(cover_path, title, artist, duration_seconds=Non
     if not artist or artist.strip() == "":
         artist = "Unknown Artist"
 
+    # Fix float/int issue for duration
+    if duration_seconds is not None:
+        if isinstance(duration_seconds, float):
+            duration_seconds = int(duration_seconds)
+        elif not isinstance(duration_seconds, int):
+            duration_seconds = 0
+
     # Handle time
     if (
         duration_seconds is None
@@ -155,10 +170,10 @@ async def create_music_thumbnail(cover_path, title, artist, duration_seconds=Non
         total_time = "Live"
         tot_sec = None
     else:
-        tot_sec = duration_seconds
+        tot_sec = int(duration_seconds)
         total_time = seconds_to_hhmmss(duration_seconds)
 
-    if tot_sec:
+    if tot_sec and tot_sec > 0:
         cur_sec = random.randint(0, tot_sec)
         current_time = seconds_to_hhmmss(cur_sec)
     else:
@@ -170,7 +185,7 @@ async def create_music_thumbnail(cover_path, title, artist, duration_seconds=Non
     bg = cover.copy().resize((1280, 720))
     bg = bg.filter(ImageFilter.GaussianBlur(25))
 
-    # --- Gradient overlay background ---
+    # Gradient overlay background
     grad_overlay = Image.new("RGBA", bg.size, (0, 0, 0, 0))
     gdraw = ImageDraw.Draw(grad_overlay)
     c1, c2 = random_color(), random_color()
@@ -181,11 +196,11 @@ async def create_music_thumbnail(cover_path, title, artist, duration_seconds=Non
         gdraw.line([(0, i), (bg.width, i)], fill=(r, g, b, 80))
     bg = Image.alpha_composite(bg, grad_overlay)
 
-    # --- Glassmorphic Player Card ---
+    # Glassmorphic Player Card
     card_w, card_h = 700, 380
-    border_thickness = 5  
+    border_thickness = 5
 
-    # gradient for card border
+    # Gradient for card border
     grad = Image.new("RGBA", (card_w + border_thickness*2, card_h + border_thickness*2), (0,0,0,0))
     gdraw = ImageDraw.Draw(grad)
     c1, c2 = random_color(), random_color()
@@ -216,14 +231,14 @@ async def create_music_thumbnail(cover_path, title, artist, duration_seconds=Non
     card_with_border = border.copy()
     card_with_border.paste(card, (border_thickness, border_thickness), mask_card)
 
-    # position card CENTER
+    # Position card CENTER
     x = (bg.width - card_with_border.width) // 2
     y = (bg.height - card_with_border.height) // 2
     bg.paste(card_with_border, (x,y), card_with_border)
 
-    # --- Album cover inside card with gradient border ---
+    # Album cover inside card with gradient border
     cover_size = 200
-    border_size = 6  # thin border
+    border_size = 6
 
     # Gradient border for cover
     grad_cover = Image.new("RGBA", (cover_size + border_size*2, cover_size + border_size*2), (0,0,0,0))
@@ -260,14 +275,13 @@ async def create_music_thumbnail(cover_path, title, artist, duration_seconds=Non
     cover_y = y + (card_h - cover_with_border.height)//2 + border_thickness
     bg.paste(cover_with_border, (cover_x, cover_y), cover_with_border)
 
-    # --- Draw texts and progress bar ---
+    # Draw texts and progress bar
     draw = ImageDraw.Draw(bg)
     try:
         font_title = ImageFont.truetype("AdityaHalder/resource/font.ttf", 36)
         font_artist = ImageFont.truetype("AdityaHalder/resource/font.ttf", 28)
         font_time = ImageFont.truetype("AdityaHalder/resource/font.ttf", 24)
     except:
-        # Fallback to default font if custom font not found
         font_title = ImageFont.load_default()
         font_artist = ImageFont.load_default()
         font_time = ImageFont.load_default()
@@ -280,22 +294,29 @@ async def create_music_thumbnail(cover_path, title, artist, duration_seconds=Non
     draw.text((text_x, y + 86), title, font=font_title, fill="white")
     draw.text((text_x, y + 146), artist, font=font_artist, fill="white")
 
-    # Progress bar
+    # Progress bar - Fix integer issue
     progress_x, progress_y = text_x, y + 206
     bar_w, bar_h = 380, 8
-    prog_fill = int((cur_sec / tot_sec) * bar_w) if tot_sec else bar_w
+    
+    if tot_sec and tot_sec > 0:
+        prog_fill = int((cur_sec / tot_sec) * bar_w)
+    else:
+        prog_fill = int(bar_w * 0.3)  # Default progress
 
     draw.rounded_rectangle([progress_x, progress_y, progress_x + bar_w, progress_y + bar_h],
                            5, fill=(120, 120, 120, 160))
 
     c1, c2 = random_color(), random_color()
-    for i in range(prog_fill):
-        r = int(c1[0] + (c2[0]-c1[0]) * (i/max(1, prog_fill)))
-        g = int(c1[1] + (c2[1]-c1[1]) * (i/max(1, prog_fill)))
-        b = int(c1[2] + (c2[2]-c1[2]) * (i/max(1, prog_fill)))
+    for i in range(int(prog_fill)):
+        if prog_fill > 0:
+            r = int(c1[0] + (c2[0]-c1[0]) * (i/max(1, prog_fill)))
+            g = int(c1[1] + (c2[1]-c1[1]) * (i/max(1, prog_fill)))
+            b = int(c1[2] + (c2[2]-c1[2]) * (i/max(1, prog_fill)))
+        else:
+            r, g, b = c1
         draw.line([(progress_x + i, progress_y), (progress_x + i, progress_y + bar_h)], fill=(r,g,b))
 
-    knob_x = progress_x + prog_fill
+    knob_x = progress_x + int(prog_fill)
     knob_y = progress_y + bar_h // 2
     draw.ellipse([knob_x - 6, knob_y - 6, knob_x + 6, knob_y + 6], fill="white", outline="black", width=2)
 
@@ -304,48 +325,48 @@ async def create_music_thumbnail(cover_path, title, artist, duration_seconds=Non
     total_x = progress_x + bar_w - (total_bbox[2] - total_bbox[0])
     draw.text((total_x, progress_y + 15), total_time, font=font_time, fill="red" if total_time == "Live" else "white")
 
-    # Controls (with repeat moved before back)
+    # Controls
     controls_y = progress_y + 70
     num_icons = 7
     step = bar_w // (num_icons - 1)
     icon_positions = [progress_x + i*step for i in range(num_icons)]
 
-    # shuffle
+    # Shuffle
     shuffle_x = icon_positions[0]
     draw.line([(shuffle_x-12, controls_y-8), (shuffle_x+8, controls_y+12)], fill=(0,255,120), width=3)
     draw.polygon([(shuffle_x+8, controls_y+12), (shuffle_x+16, controls_y+6), (shuffle_x+2, controls_y+4)], fill=(0,255,120))
     draw.line([(shuffle_x-12, controls_y+8), (shuffle_x-2, controls_y-2)], fill=(0,255,120), width=3)
 
-    # repeat (bright yellow)
+    # Repeat
     repeat_x = icon_positions[1]
     repeat_color = (255, 220, 50)
     draw.arc([repeat_x-14, controls_y-12, repeat_x+14, controls_y+12], start=30, end=300, fill=repeat_color, width=3)
     draw.polygon([(repeat_x+14, controls_y-2), (repeat_x+22, controls_y-6), (repeat_x+14, controls_y-10)], fill=repeat_color)
 
-    # back
+    # Back
     sbx = icon_positions[2]
     draw.polygon([(sbx+10, controls_y-10), (sbx+10, controls_y+10), (sbx-12, controls_y)], fill="white")
     draw.rectangle([sbx+14, controls_y-10, sbx+18, controls_y+10], fill="white")
 
-    # pause
+    # Pause
     center_x = icon_positions[3]
     bar_wid, bar_height = 6, 26
     gap = 10
     draw.rectangle([center_x-gap-bar_wid, controls_y-bar_height//2, center_x-gap, controls_y+bar_height//2], fill="white")
     draw.rectangle([center_x+gap, controls_y-bar_height//2, center_x+gap+bar_wid, controls_y+bar_height//2], fill="white")
 
-    # forward
+    # Forward
     sfx = icon_positions[4]
     draw.polygon([(sfx-10, controls_y-10), (sfx-10, controls_y+10), (sfx+12, controls_y)], fill="white")
     draw.rectangle([sfx-18, controls_y-10, sfx-14, controls_y+10], fill="white")
 
-    # heart
+    # Heart
     fav_x = icon_positions[5]
     heart = [(fav_x, controls_y), (fav_x-10, controls_y-10), (fav_x-20, controls_y), (fav_x, controls_y+14),
              (fav_x+20, controls_y), (fav_x+10, controls_y-10)]
     draw.polygon(heart, fill="red")
 
-    # earphone
+    # Earphone
     ear_x = icon_positions[6]
     draw.arc([ear_x-20, controls_y-20, ear_x+20, controls_y+20], start=200, end=-20, fill="white", width=3)
     draw.rectangle([ear_x-18, controls_y-4, ear_x-10, controls_y+12], fill="white")
@@ -357,7 +378,6 @@ async def create_music_thumbnail(cover_path, title, artist, duration_seconds=Non
 
 async def generate_thumbnail(url: str) -> str:
     try:
-        # Ensure cache directory exists
         os.makedirs("cache", exist_ok=True)
         
         filename = os.path.join("cache", f"thumbnail_{hash(url)}.jpg")
@@ -397,7 +417,6 @@ async def generate_thumbnail(url: str) -> str:
     except Exception:
         return "AdityaHalder/resource/thumbnail.png"
 
-
 async def make_thumbnail(image, title, channel, duration, output):
     return await create_music_thumbnail(image, title, channel, duration, output)
 
@@ -411,7 +430,6 @@ def get_media_type(telegram_media):
         elif mime_type.startswith('audio/'):
             return 'audio'
     
-    # Fallback based on media type
     if hasattr(telegram_media, '__class__'):
         class_name = telegram_media.__class__.__name__.lower()
         if 'video' in class_name:
@@ -419,26 +437,31 @@ def get_media_type(telegram_media):
         elif 'audio' in class_name or 'voice' in class_name:
             return 'audio'
     
-    return 'audio'  # Default to audio
+    return 'audio'
+
+
 async def handle_telegram_media(client, message, telegram_media, video_stream=False):
     """Handle Telegram media files (audio, voice, video, documents)"""
     try:
-        # Get media info
+        # Get media info with proper type conversion
         media_title = getattr(telegram_media, 'title', None) or getattr(telegram_media, 'file_name', None) or "Telegram Media"
         media_performer = getattr(telegram_media, 'performer', None) or "Unknown Artist"
         media_duration = getattr(telegram_media, 'duration', 0)
         
-        # Determine actual media type
+        # Fix duration type issues
+        if isinstance(media_duration, float):
+            media_duration = int(media_duration)
+        elif media_duration is None or not isinstance(media_duration, (int, float)):
+            media_duration = 0
+        
         actual_media_type = get_media_type(telegram_media)
         
-        # Create unique filename with proper extension
         file_id = telegram_media.file_id
         if actual_media_type == 'video' or video_stream:
             file_extension = ".mp4"
         else:
             file_extension = ".mp3"
         
-        # Ensure downloads directory exists
         os.makedirs("downloads", exist_ok=True)
         file_path = os.path.join("downloads", f"tg_{file_id}{file_extension}")
         
@@ -447,12 +470,10 @@ async def handle_telegram_media(client, message, telegram_media, video_stream=Fa
             try:
                 await message.reply_to_message.download(file_name=file_path)
                 
-                # Wait for download completion with better checking
-                max_wait = 120  # Increased timeout for video files
+                max_wait = 120
                 wait_count = 0
                 while wait_count < max_wait:
                     if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
-                        # Wait a bit more to ensure complete download
                         await asyncio.sleep(2)
                         break
                     await asyncio.sleep(1)
@@ -464,28 +485,24 @@ async def handle_telegram_media(client, message, telegram_media, video_stream=Fa
             except Exception as e:
                 return None, f"❌ Failed to download media: {str(e)}"
         
-        # Verify file exists and has content
         if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
             return None, "❌ Downloaded file is missing or empty."
         
-        # Create media stream with proper configuration based on stream type
+        # Create media stream
         try:
             if video_stream and actual_media_type == 'video':
-                # For video streaming with video file
                 media_stream = MediaStream(
                     media_path=file_path,
                     audio_parameters=AudioQuality.STUDIO,
                     video_parameters=VideoQuality.HD_720p,
                 )
             elif video_stream and actual_media_type == 'audio':
-                # For vplay command on audio file - still show video with album art
                 media_stream = MediaStream(
                     media_path=file_path,
                     audio_parameters=AudioQuality.STUDIO,
-                    video_parameters=VideoQuality.HD_720p,  # Enable video for album art
+                    video_parameters=VideoQuality.HD_720p,
                 )
             else:
-                # For audio streaming only (play command)
                 media_stream = MediaStream(
                     media_path=file_path,
                     video_flags=MediaStream.Flags.IGNORE,
@@ -499,16 +516,18 @@ async def handle_telegram_media(client, message, telegram_media, video_stream=Fa
             'media_stream': media_stream,
             'title': media_title,
             'artist': media_performer,
-            'duration_sec': media_duration,
-            'duration_formatted': format_duration(media_duration) if media_duration else "Unknown",
+            'duration_sec': int(media_duration),
+            'duration_formatted': format_duration(media_duration),
             'file_path': file_path,
-            'thumbnail_url': "AdityaHalder/resource/thumbnail.png",  # Default thumbnail for Telegram media
+            'thumbnail_url': "AdityaHalder/resource/thumbnail.png",
             'media_type': actual_media_type
         }, None
         
     except Exception as e:
         return None, f"❌ Error processing Telegram media: {str(e)}"
 
+
+# MAIN PLAY/VPLAY COMMAND
 @bot.on_message(cdz(["play", "vplay"]) & ~filters.private)
 async def start_stream_in_vc(client, message):
     try:
@@ -535,7 +554,6 @@ async def start_stream_in_vc(client, message):
         elif replied.video:
             telegram_media = replied.video
         elif replied.document and replied.document.mime_type:
-            # Check if document is audio/video
             if replied.document.mime_type.startswith(('audio/', 'video/')):
                 telegram_media = replied.document
 
@@ -557,7 +575,6 @@ async def start_stream_in_vc(client, message):
                 else:
                     return await message.reply_text(error)
             
-            # Extract info
             media_stream = media_info['media_stream']
             title = media_info['title']
             artist = media_info['artist']
@@ -567,11 +584,10 @@ async def start_stream_in_vc(client, message):
             thumbnail_url = media_info['thumbnail_url']
             actual_media_type = media_info['media_type']
             
-            # Update aux message with streaming status
             if aux:
                 await aux.edit("**🎵 Starting stream...**")
             
-            # Try to stream
+            # Start or add to queue
             if chat_id not in call.queue:
                 try:
                     await call.start_stream(chat_id, media_stream)
@@ -582,9 +598,9 @@ async def start_stream_in_vc(client, message):
                         return await message.reply_text("❌ No active voice chat found. Please join a voice chat first.")
                 except TelegramServerError:
                     if aux:
-                        return await aux.edit("⚠️ **Telegram server error!**\nPlease try again shortly.")
+                        return await aux.edit("⚠️ **Telegram server error!** Please try again shortly.")
                     else:
-                        return await message.reply_text("⚠️ **Telegram server error!**\nPlease try again shortly.")
+                        return await message.reply_text("⚠️ **Telegram server error!** Please try again shortly.")
                 except Exception as e:
                     if aux:
                         return await aux.edit(f"❌ **Failed to stream:** `{str(e)}`")
@@ -605,7 +621,6 @@ async def start_stream_in_vc(client, message):
                 
             pos = await call.add_to_queue(chat_id, media_stream, title, duration_formatted, thumbnail, mention, file_path)
             
-            # Determine stream type for display
             stream_type_display = "Video" if (video_stream and actual_media_type == 'video') else "Audio"
             
             status = (
@@ -623,16 +638,9 @@ async def start_stream_in_vc(client, message):
 **❍ Source:** Telegram Media
 **❍ Requested By:** {mention}"""
 
-            buttons = InlineKeyboardMarkup(
-                [
-                    [
-                        InlineKeyboardButton(
-                            text="🗑️ Close",
-                            callback_data="close",
-                        ),
-                    ]
-                ]
-            )
+            buttons = InlineKeyboardMarkup([
+                [InlineKeyboardButton(text="🗑️ Close", callback_data="close")]
+            ])
             
             try:
                 await message.reply_photo(photo=thumbnail, caption=caption, has_spoiler=True, reply_markup=buttons)
@@ -652,7 +660,7 @@ async def start_stream_in_vc(client, message):
                 await message.reply_text(error_msg)
             return
 
-    # If no Telegram media and no query provided, show help
+    # No Telegram media, need query
     if len(message.command) < 2:
         return await message.reply_text(
             f"""**🥀 Give Me Some Query To Stream Audio Or Video❗...
@@ -700,15 +708,11 @@ async def start_stream_in_vc(client, message):
         channel = video["channel"]["name"]
         link = video["link"]
         
-        # Ensure downloads directory exists
         os.makedirs("downloads", exist_ok=True)
-        
-        # Choose file extension based on stream type
         file_extension = ".mp4" if video_stream else ".mp3"
         xyz = os.path.join("downloads", f"{id}{file_extension}")
         
         if not os.path.exists(xyz):
-            # Request appropriate format from API
             format_type = "video" if video_stream else "audio"
             song_data = await fetch_song(id, format_type)
             
@@ -718,11 +722,10 @@ async def start_stream_in_vc(client, message):
                 else:
                     return await message.reply_text("❌ Failed to process query, please try again.")
             
-            # Check different possible fields for download URL
+            # Handle download URLs
             song_url = None
             download_url = None
             
-            # Check various possible response formats
             if "link" in song_data:
                 song_url = song_data["link"]
             elif "download_url" in song_data:
@@ -738,7 +741,6 @@ async def start_stream_in_vc(client, message):
             elif "direct_url" in song_data:
                 download_url = song_data["direct_url"]
             elif isinstance(song_data, dict) and "data" in song_data:
-                # If response has nested data
                 data = song_data["data"]
                 if isinstance(data, dict):
                     if "link" in data:
@@ -752,7 +754,7 @@ async def start_stream_in_vc(client, message):
                     elif "audio_url" in data:
                         download_url = data["audio_url"]
             
-            # Handle Telegram link format
+            # Download file
             if song_url:
                 c_username, message_id = parse_tg_link(song_url)
                 if not c_username or not message_id:
@@ -772,7 +774,6 @@ async def start_stream_in_vc(client, message):
                     else:
                         return await message.reply_text(f"❌ Failed to download: {str(e)}")
             
-            # Handle direct URL download
             elif download_url:
                 try:
                     if aux:
@@ -790,18 +791,16 @@ async def start_stream_in_vc(client, message):
                         return await message.reply_text(f"❌ Failed to download: {str(e)}")
             
             else:
-                # No valid download URL found
                 if aux:
                     return await aux.edit(f"❌ No download link found in API response. Available fields: {list(song_data.keys())}")
                 else:
                     return await message.reply_text(f"❌ No download link found in API response. Available fields: {list(song_data.keys())}")
                 
-            # Wait for file to be completely downloaded
-            max_wait = 120  # Increased timeout for video files
+            # Wait for download completion
+            max_wait = 120
             wait_count = 0
             while wait_count < max_wait:
                 if os.path.exists(xyz) and os.path.getsize(xyz) > 0:
-                    # Wait a bit more to ensure complete download
                     await asyncio.sleep(3)
                     break
                 await asyncio.sleep(1)
@@ -815,17 +814,15 @@ async def start_stream_in_vc(client, message):
 
         file_path = xyz
 
-        # Create media stream with proper error handling and configuration
+        # Create media stream
         try:
             if video_stream:
-                # For video streaming (vplay command) - always include video track
                 media_stream = MediaStream(
                     media_path=file_path,
                     audio_parameters=AudioQuality.STUDIO,
                     video_parameters=VideoQuality.HD_720p,
                 )
             else:
-                # For audio streaming (play command) - audio only
                 media_stream = MediaStream(
                     media_path=file_path,
                     video_flags=MediaStream.Flags.IGNORE,
@@ -838,11 +835,10 @@ async def start_stream_in_vc(client, message):
             else:
                 return await message.reply_text(f"❌ **Failed to create media stream:** `{str(e)}`")
         
-        # Update aux message
         if aux:
             await aux.edit("**🎵 Starting stream...**")
         
-        # Check if chat_id is in queue, if not start streaming
+        # Start streaming
         if chat_id not in call.queue:
             try:
                 await call.start_stream(chat_id, media_stream)
@@ -853,16 +849,16 @@ async def start_stream_in_vc(client, message):
                     return await message.reply_text("❌ No active voice chat found. Please join a voice chat first.")
             except TelegramServerError:
                 if aux:
-                    return await aux.edit("⚠️ **Telegram server error!**\nPlease try again shortly.")
+                    return await aux.edit("⚠️ **Telegram server error!** Please try again shortly.")
                 else:
-                    return await message.reply_text("⚠️ **Telegram server error!**\nPlease try again shortly.")
+                    return await message.reply_text("⚠️ **Telegram server error!** Please try again shortly.")
             except Exception as e:
                 if aux:
                     return await aux.edit(f"❌ **Failed to stream:** `{str(e)}`")
                 else:
                     return await message.reply_text(f"❌ **Failed to stream:** `{str(e)}`")
 
-        # Generate thumbnail
+        # Generate thumbnail and add to queue
         image_file = await generate_thumbnail(image_path)
         thumbnail = await make_thumbnail(
             image_file, full_title, channel, duration_sec, f"cache/{chat_id}_{id}_{message.id}.png"
@@ -876,7 +872,6 @@ async def start_stream_in_vc(client, message):
             
         pos = await call.add_to_queue(chat_id, media_stream, title, duration_mins, thumbnail, mention, file_path)
         
-        # Determine stream type for display
         stream_type_display = "Video" if video_stream else "Audio"
         
         status = (
@@ -894,16 +889,9 @@ async def start_stream_in_vc(client, message):
 **❍ Channel:** [{channel}]({channellink})
 **❍ Requested By:** {mention}"""
 
-        buttons = InlineKeyboardMarkup(
-            [
-                [
-                    InlineKeyboardButton(
-                        text="🗑️ Close",
-                        callback_data="close",
-                    ),
-                ]
-            ]
-        )
+        buttons = InlineKeyboardMarkup([
+            [InlineKeyboardButton(text="🗑️ Close", callback_data="close")]
+        ])
         
         try:
             await message.reply_photo(photo=thumbnail, caption=caption, has_spoiler=True, reply_markup=buttons)
