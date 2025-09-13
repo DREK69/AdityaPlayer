@@ -42,7 +42,7 @@ async def fetch_song(query: str, fmt: str = "video"):
     params = {
         "query": query,
         "format": fmt,
-        "api_key": "1spiderkey2"
+        "api_key": "sahilnewkey3210"
     }
 
     try:
@@ -958,3 +958,4 @@ async def start_stream_in_vc(client, message):
                 await message.reply_text(error_msg)
         else:
             await message.reply_text(error_msg)
+
